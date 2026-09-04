@@ -143,6 +143,20 @@ describe("execution strategies", () => {
     expect(calls).toHaveLength(2);
     expect(calls.every((call) => call.prompt.startsWith("Find the root cause") && call.prompt.includes("120 words maximum") && call.readOnly)).toBe(true);
   });
+  it("emits per-worker lifecycle events during fanout", async () => {
+    const calls: WorkerRequest[] = [];
+    const providers = { claude: fakeProvider("claude", calls), codex: fakeProvider("codex", calls) };
+    const started: string[] = []; const completed: string[] = []; const failed: string[] = [];
+    const lifecycle = {
+      onWorkerStarted: (info: { workerId: string }) => { started.push(info.workerId); },
+      onWorkerCompleted: (info: { workerId: string }) => { completed.push(info.workerId); },
+      onWorkerFailed: (info: { workerId: string }) => { failed.push(info.workerId); },
+    };
+    await runFanout("/tmp/dtr-routing-test/config", config, providers, "Find the root cause", "/tmp", profile({ role: "debugger", complexity: "difficult", diversity: "medium" }), 2, undefined, undefined, lifecycle);
+    expect(started.sort()).toEqual(["claude-review", "codex-build"]);
+    expect(completed.sort()).toEqual(["claude-review", "codex-build"]);
+    expect(failed).toEqual([]);
+  });
   it("returns an explicit degraded result when enough families are unavailable", async () => {
     const calls: WorkerRequest[] = [];
     const providers = { claude: fakeProvider("claude", calls), codex: fakeProvider("codex", calls) };

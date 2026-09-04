@@ -15,8 +15,8 @@ export interface RunRecord {
   outcome?: { status: "accepted" | "rejected" | "partial" | "escalated"; reviewFindingsCount?: number; regressionDetected?: boolean; manualScore?: number };
 }
 
-export async function createRunRecord(stateRoot: string, strategy: RunRecord["strategy"], template?: string): Promise<RunRecord> {
-  const record: RunRecord = { id: randomUUID(), state: "queued", strategy, ...(template ? { template } : {}), startedAt: new Date().toISOString(), stages: [] };
+export async function createRunRecord(stateRoot: string, strategy: RunRecord["strategy"], template?: string, id?: string): Promise<RunRecord> {
+  const record: RunRecord = { id: id ?? randomUUID(), state: "queued", strategy, ...(template ? { template } : {}), startedAt: new Date().toISOString(), stages: [] };
   await writeRunRecord(stateRoot, record);
   return record;
 }

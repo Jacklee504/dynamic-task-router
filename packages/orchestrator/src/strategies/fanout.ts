@@ -6,7 +6,7 @@ import { configuredModel, modelAvailability } from "../routing/runtime.js";
 import { eligibleSelections } from "../routing/selector.js";
 import { writeRunLog } from "../telemetry/run-log.js";
 import { stateDirectoryFor } from "../state.js";
-import type { Provider, RoutingMetadata, TaskProfile, WorkerRequest, WorkerResult } from "../types.js";
+import type { Provider, RoutingMetadata, TaskProfile, WorkerLifecycle, WorkerRequest, WorkerResult } from "../types.js";
 
 export type FanoutRun = { model: string; result: WorkerResult; runLog: string; routing: RoutingMetadata };
 
@@ -20,6 +20,7 @@ export async function runFanout(
   requestedFamilies?: number,
   signal?: AbortSignal,
   stateRoot?: string,
+  lifecycle?: WorkerLifecycle,
 ): Promise<FanoutRun[]> {
   const minimumFamilies = requestedFamilies ?? requiredFamilies(config, profile.diversity);
   if (minimumFamilies < 2) throw new Error("dtr fanout requires at least two independent families");
@@ -44,7 +45,10 @@ export async function runFanout(
     };
     const provider = providers[model.provider];
     if (!provider) throw new Error(`Provider '${model.provider}' is not implemented`);
+    lifecycle?.onWorkerStarted?.({ workerId: model.id, provider: model.provider, model: model.model, role: profile.role, effort: effort.effective });
     const result = await provider.run(request);
+    if (result.success) lifecycle?.onWorkerCompleted?.({ workerId: model.id, result });
+    else lifecycle?.onWorkerFailed?.({ workerId: model.id, error: result.error ?? "Worker failed" });
     const routing: RoutingMetadata = {
       profile,
       selectedModel: model.id,

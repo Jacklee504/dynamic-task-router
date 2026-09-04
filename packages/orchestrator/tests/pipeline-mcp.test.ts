@@ -71,6 +71,18 @@ describe("MCP and pipelines", () => {
     await expect(readRunRecord(stateDirectoryFor(root), run.record.id)).resolves.toMatchObject({ state: "succeeded", template: "debug-review" });
     await expect((await import("node:fs/promises")).access(join(root, ".dtr"))).rejects.toThrow();
   });
+  it("emits per-stage lifecycle events using stage ids as worker ids", async () => {
+    const root = await mkdtemp(join(tmpdir(), "dtr-pipeline-")); directories.push(root, stateDirectoryFor(root)); const calls: WorkerRequest[] = [];
+    const started: string[] = []; const completed: string[] = [];
+    const lifecycle = {
+      onWorkerStarted: (info: { workerId: string }) => { started.push(info.workerId); },
+      onWorkerCompleted: (info: { workerId: string }) => { completed.push(info.workerId); },
+      onWorkerFailed: () => {},
+    };
+    await runPipeline(config, { claude: provider("claude", calls), codex: provider("codex", calls) }, "debug-review", "Trace", root, { role: "debugger", complexity: "difficult", risk: "low", preferLocal: false, requireLocal: false, privacySensitive: false, diversity: "none", requiresTools: false }, { lifecycle });
+    expect(started).toEqual(["diagnose", "independent", "review"]);
+    expect(completed).toEqual(["diagnose", "independent", "review"]);
+  });
   it("persists a failed stage and does not run dependents", async () => {
     const root = await mkdtemp(join(tmpdir(), "dtr-pipeline-")); directories.push(root, stateDirectoryFor(root)); const calls: WorkerRequest[] = [];
     const failed: Provider = { id: "codex", health: async () => true, run: async (request) => { calls.push(request); return { provider: "codex", model: request.model, requestedEffort: request.effort, output: "", success: false, durationMs: 1, error: "worker failed" }; } };

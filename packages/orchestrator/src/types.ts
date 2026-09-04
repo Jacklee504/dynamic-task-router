@@ -116,6 +116,12 @@ export interface Provider {
   run(request: WorkerRequest): Promise<WorkerResult>;
 }
 
+export interface WorkerLifecycle {
+  onWorkerStarted?: (info: { workerId: string; provider: ProviderId; model: string; role: WorkerRole; effort: Effort }) => void;
+  onWorkerCompleted?: (info: { workerId: string; result: WorkerResult }) => void;
+  onWorkerFailed?: (info: { workerId: string; error: string }) => void;
+}
+
 export interface Command {
   command: string;
   args: string[];

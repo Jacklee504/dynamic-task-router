@@ -6,7 +6,7 @@ import { selectModel } from "../routing/selector.js";
 import { requiredFamilies } from "../routing/diversity.js";
 import { writeRunLog } from "../telemetry/run-log.js";
 import { stateDirectoryFor } from "../state.js";
-import type { Provider, RoutingMetadata, TaskProfile, WorkerRequest, WorkerResult, WriteBoundary } from "../types.js";
+import type { Provider, RoutingMetadata, TaskProfile, WorkerLifecycle, WorkerRequest, WorkerResult, WriteBoundary } from "../types.js";
 
 export type RoutedRun = { result: WorkerResult; runLog: string; routing: RoutingMetadata };
 
@@ -17,7 +17,7 @@ export async function runSingle(
   prompt: string,
   cwd: string,
   profile: TaskProfile,
-  options: { writeBoundary?: WriteBoundary; excludedFamilies?: Set<string>; modelId?: string; effort?: import("../types.js").Effort; signal?: AbortSignal; stateRoot?: string } = {},
+  options: { writeBoundary?: WriteBoundary; excludedFamilies?: Set<string>; modelId?: string; effort?: import("../types.js").Effort; signal?: AbortSignal; stateRoot?: string; lifecycle?: WorkerLifecycle; workerId?: string } = {},
 ): Promise<RoutedRun> {
   if (requiredFamilies(config, profile.diversity) > 1) {
     throw new Error("This task requires independent model families; use dtr fanout rather than dtr route");
@@ -43,7 +43,11 @@ export async function runSingle(
   };
   const provider = providers[model.provider];
   if (!provider) throw new Error(`Provider '${model.provider}' is not implemented`);
+  const workerId = options.workerId ?? model.id;
+  options.lifecycle?.onWorkerStarted?.({ workerId, provider: model.provider, model: model.model, role: profile.role, effort: effort.effective });
   const result = await provider.run(request);
+  if (result.success) options.lifecycle?.onWorkerCompleted?.({ workerId, result });
+  else options.lifecycle?.onWorkerFailed?.({ workerId, error: result.error ?? "Worker failed" });
   const routing: RoutingMetadata = {
     profile,
     selectedModel: model.id,

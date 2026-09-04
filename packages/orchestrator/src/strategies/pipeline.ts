@@ -5,9 +5,9 @@ import { runSingle, type RoutedRun } from "./single.js";
 import { assertSafeBoundary, createWorktree, verifyWriteBoundary } from "../worktrees/manager.js";
 import { stateDirectoryFor } from "../state.js";
 import type { WriteVerification } from "../worktrees/types.js";
-import type { PipelineDefinition, PipelineStage, Provider, TaskProfile, WriteBoundary } from "../types.js";
+import type { PipelineDefinition, PipelineStage, Provider, TaskProfile, WorkerLifecycle, WriteBoundary } from "../types.js";
 
-export type PipelineOptions = { write?: boolean | undefined; scope?: string[] | undefined };
+export type PipelineOptions = { write?: boolean | undefined; scope?: string[] | undefined; runId?: string | undefined; signal?: AbortSignal | undefined; lifecycle?: WorkerLifecycle | undefined };
 export type PipelineStageResult = { id: string; model: string; output: string; verification?: WriteVerification };
 export type PipelineRun = { record: RunRecord; stages: PipelineStageResult[] };
 
@@ -22,7 +22,7 @@ export async function runPipeline(
 ): Promise<PipelineRun> {
   const definition = pipeline(config, templateId);
   const stateRoot = stateDirectoryFor(cwd);
-  const record = await createRunRecord(stateRoot, "pipeline", definition.id);
+  const record = await createRunRecord(stateRoot, "pipeline", definition.id, options.runId);
   record.state = "running"; await writeRunRecord(stateRoot, record);
   const results = new Map<string, PipelineStageResult>();
   try {
@@ -74,21 +74,23 @@ async function runStage(
   const stageProfile: TaskProfile = { ...profile, role: stage.role, diversity: "none" };
   const wantsWrite = !stage.readOnly && options.write === true;
   if (!stage.readOnly && !options.write) stageProfile.complexity = profile.complexity;
+  const signal = options.signal;
+  const lifecycle = options.lifecycle;
   if (wantsWrite) {
     if (!options.scope?.length) throw new Error("Write pipeline requires --scope with one or more allowed paths");
     const boundary: WriteBoundary = { allowedPaths: options.scope };
     assertSafeBoundary(boundary);
     const worktree = await createWorktree(cwd, runId, stage.id);
-    const run = await runSingle(".", config, providers, stagePrompt, worktree.worktree, stageProfile, { writeBoundary: boundary, excludedFamilies, stateRoot });
+    const run = await runSingle(".", config, providers, stagePrompt, worktree.worktree, stageProfile, { writeBoundary: boundary, excludedFamilies, stateRoot, ...(signal ? { signal } : {}), ...(lifecycle ? { lifecycle, workerId: stage.id } : {}) });
     if (!run.result.success) throw new Error(run.result.error ?? `Write stage '${stage.id}' failed`);
     const verification = await verifyWriteBoundary(worktree.worktree, boundary);
     return { id: stage.id, model: run.routing.selectedModel, output: compact(run), verification };
   }
   if (stage.strategy === "fanout") {
-    const runs = await runFanout(".", config, providers, stagePrompt, cwd, { ...stageProfile, diversity: "medium" }, 2, undefined, stateRoot);
+    const runs = await runFanout(".", config, providers, stagePrompt, cwd, { ...stageProfile, diversity: "medium" }, 2, signal, stateRoot, lifecycle);
     return { id: stage.id, model: runs.map((run) => run.model).join(","), output: runs.map((run) => run.result.output.slice(0, 240)).join("\n") };
   }
-  const run = await runSingle(".", config, providers, stagePrompt, cwd, stageProfile, { excludedFamilies, stateRoot });
+  const run = await runSingle(".", config, providers, stagePrompt, cwd, stageProfile, { excludedFamilies, stateRoot, ...(signal ? { signal } : {}), ...(lifecycle ? { lifecycle, workerId: stage.id } : {}) });
   if (!run.result.success) throw new Error(run.result.error ?? `Stage '${stage.id}' failed`);
   return { id: stage.id, model: run.routing.selectedModel, output: compact(run) };
 }

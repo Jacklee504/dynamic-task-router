@@ -16,7 +16,7 @@ import { runPipeline } from "./strategies/pipeline.js";
 import { runSingle } from "./strategies/single.js";
 import { buildCompactTaskPacket } from "./contracts.js";
 import { createRunRecord, readRunRecord, writeRunRecord, type RunRecord } from "./telemetry/run-registry.js";
-import type { Effort, ProviderId, TaskProfile, WorkerResult, WorkerRole } from "./types.js";
+import type { Effort, ProviderId, TaskProfile, WorkerLifecycle, WorkerResult, WorkerRole } from "./types.js";
 export type { Effort, ProviderId, TaskProfile, WorkerResult, WorkerRole } from "./types.js";
 export type { RunRecord } from "./telemetry/run-registry.js";
 
@@ -107,13 +107,34 @@ export class DtrApplication {
 
   async fanout(input: RunRequest & { families?: number | undefined }): Promise<Array<{ runId: string; model: string; result: WorkerResult }>> {
     const prompt = buildCompactTaskPacket(input.prompt); const stateRoot = stateDirectoryFor(input.cwd || this.defaultCwd); const config = await this.config(); const profile = { ...this.profile(input), diversity: "medium" as const }; const record = await createRunRecord(stateRoot, "fanout"); const controller = new AbortController(); this.active.set(record.id, controller); this.emit({ type: "run-created", runId: record.id, task: safeTask(input.prompt), timestamp: record.startedAt });
+    const lifecycle = this.forwardLifecycle(record.id);
     try {
-      record.state = "running"; await writeRunRecord(stateRoot, record); const runs = await runFanout(this.configDir, config, this.providers, prompt, input.cwd, profile, input.families, controller.signal, stateRoot);
+      record.state = "running"; await writeRunRecord(stateRoot, record); const runs = await runFanout(this.configDir, config, this.providers, prompt, input.cwd, profile, input.families, controller.signal, stateRoot, lifecycle);
       record.state = runs.every((run) => run.result.success) ? "succeeded" : "failed"; record.endedAt = now(); record.stages = runs.map((run) => ({ id: run.model, model: run.model, state: run.result.success ? "succeeded" : "failed" })); await writeRunRecord(stateRoot, record); this.emit({ type: "run-completed", runId: record.id, outcome: record.state, timestamp: now() }); return runs.map((run) => ({ runId: record.id, model: run.model, result: run.result }));
     } finally { this.active.delete(record.id); }
   }
 
-  async pipeline(input: RunRequest & { template: string; write?: boolean; scope?: string[] }) { const config = await this.config(); return runPipeline(config, this.providers, input.template, buildCompactTaskPacket(input.prompt), input.cwd, this.profile(input), { write: input.write, scope: input.scope }); }
+  async pipeline(input: RunRequest & { template: string; write?: boolean; scope?: string[] }) {
+    const stateRoot = stateDirectoryFor(input.cwd || this.defaultCwd); const config = await this.config(); const record = await createRunRecord(stateRoot, "pipeline", input.template);
+    const controller = new AbortController(); this.active.set(record.id, controller); this.emit({ type: "run-created", runId: record.id, task: safeTask(input.prompt), timestamp: record.startedAt });
+    const lifecycle = this.forwardLifecycle(record.id);
+    try {
+      const result = await runPipeline(config, this.providers, input.template, buildCompactTaskPacket(input.prompt), input.cwd, this.profile(input), { write: input.write, scope: input.scope, runId: record.id, signal: controller.signal, lifecycle });
+      this.emit({ type: "run-completed", runId: record.id, outcome: result.record.state, timestamp: now() });
+      return result;
+    } catch (error) {
+      this.emit({ type: "run-failed", runId: record.id, error: safeError(error), timestamp: now() });
+      throw error;
+    } finally { this.active.delete(record.id); }
+  }
+
+  private forwardLifecycle(runId: string): WorkerLifecycle {
+    return {
+      onWorkerStarted: (info) => this.emit({ type: "worker-started", runId, workerId: info.workerId, provider: info.provider, model: info.model, role: info.role, effort: info.effort, timestamp: now() }),
+      onWorkerCompleted: (info) => this.emit({ type: "worker-completed", runId, workerId: info.workerId, result: info.result, timestamp: now() }),
+      onWorkerFailed: (info) => this.emit({ type: "worker-failed", runId, workerId: info.workerId, error: info.error, timestamp: now() }),
+    };
+  }
   async abort(runId: string): Promise<AbortResult> { const controller = this.active.get(runId); if (!controller) return { runId, accepted: false, state: "unavailable" }; this.emit({ type: "run-aborting", runId, timestamp: now() }); controller.abort(); return { runId, accepted: true, state: "aborting" }; }
   async getRun(runId: string): Promise<RunRecord | null> { try { return await readRunRecord(stateDirectoryFor(this.defaultCwd), runId); } catch { return null; } }
   async listRuns(limit = 30): Promise<RunRecord[]> { const stateRoot = stateDirectoryFor(this.defaultCwd); try { const entries = (await readdir(resolve(stateRoot, "runs"))).filter((entry) => entry.endsWith(".status.json")).sort().reverse().slice(0, limit); return Promise.all(entries.map((entry) => readRunRecord(stateRoot, entry.replace(".status.json", "")))); } catch { return []; } }
