@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { WriteBoundary } from "../types.js";
+import { stateDirectoryFor } from "../state.js";
 import type { WorktreeHandle, WriteVerification } from "./types.js";
 
 const exec = promisify(execFile);
@@ -22,9 +23,9 @@ export async function createWorktree(repo: string, runId: string, workerId: stri
   assertSafeIdentifier(runId, "run ID");
   assertSafeIdentifier(workerId, "worker ID");
   await assertCleanGitRepository(repo);
-  const worktree = resolve(repo, ".dtr", "worktrees", runId, workerId);
+  const worktree = resolve(stateDirectoryFor(repo), "worktrees", runId, workerId);
   const branch = `dtr/${runId}-${workerId}`;
-  await mkdir(resolve(worktree, ".."), { recursive: true });
+  await mkdir(resolve(worktree, ".."), { recursive: true, mode: 0o700 });
   await git(repo, ["worktree", "add", "-b", branch, worktree, "HEAD"]);
   return { branch, worktree, runId, workerId };
 }
@@ -46,7 +47,7 @@ export async function verifyWriteBoundary(worktree: string, boundary: WriteBound
 export async function removeDtrWorktree(repo: string, handle: WorktreeHandle): Promise<void> {
   assertSafeIdentifier(handle.runId, "run ID");
   assertSafeIdentifier(handle.workerId, "worker ID");
-  const expected = resolve(repo, ".dtr", "worktrees", handle.runId, handle.workerId);
+  const expected = resolve(stateDirectoryFor(repo), "worktrees", handle.runId, handle.workerId);
   if (resolve(handle.worktree) !== expected || !handle.branch.startsWith(`dtr/${handle.runId}-`)) throw new Error("Refusing to remove a non-DTR worktree");
   await git(repo, ["worktree", "remove", handle.worktree]);
 }

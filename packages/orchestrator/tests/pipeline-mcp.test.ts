@@ -6,6 +6,7 @@ import { mcpProfileSchema } from "../src/mcp.js";
 import { parseConfig } from "../src/config.js";
 import { runPipeline } from "../src/strategies/pipeline.js";
 import { readRunRecord } from "../src/telemetry/run-registry.js";
+import { stateDirectoryFor } from "../src/state.js";
 import type { Provider, WorkerRequest } from "../src/types.js";
 
 const models = `
@@ -60,21 +61,22 @@ describe("MCP and pipelines", () => {
     expect(() => mcpProfileSchema.parse({ role: "reviewer", prompt: "" })).toThrow();
   });
   it("orders dependencies and supplies only required prior evidence", async () => {
-    const root = await mkdtemp(join(tmpdir(), "dtr-pipeline-")); directories.push(root); const calls: WorkerRequest[] = [];
+    const root = await mkdtemp(join(tmpdir(), "dtr-pipeline-")); directories.push(root, stateDirectoryFor(root)); const calls: WorkerRequest[] = [];
     const run = await runPipeline(config, { claude: provider("claude", calls), codex: provider("codex", calls) }, "debug-review", "Trace the issue", root, { role: "debugger", complexity: "difficult", risk: "low", preferLocal: false, requireLocal: false, privacySensitive: false, diversity: "none", requiresTools: false });
     expect(run.record.state).toBe("succeeded"); expect(run.record.stages.map((stage) => stage.id)).toEqual(["diagnose", "independent", "review"]);
     expect(run.record.stages.map((stage) => stage.model)).toEqual(["codex", "claude", "claude"]);
     expect(calls[1]?.prompt).toContain("diagnose: codex evidence"); expect(calls[1]?.prompt).not.toContain("claude evidence");
     expect(calls[2]?.prompt).toContain("diagnose: codex evidence"); expect(calls[2]?.prompt).toContain("independent: claude evidence");
     expect(calls.every((call) => call.readOnly)).toBe(true);
-    await expect(readRunRecord(root, run.record.id)).resolves.toMatchObject({ state: "succeeded", template: "debug-review" });
+    await expect(readRunRecord(stateDirectoryFor(root), run.record.id)).resolves.toMatchObject({ state: "succeeded", template: "debug-review" });
+    await expect((await import("node:fs/promises")).access(join(root, ".dtr"))).rejects.toThrow();
   });
   it("persists a failed stage and does not run dependents", async () => {
-    const root = await mkdtemp(join(tmpdir(), "dtr-pipeline-")); directories.push(root); const calls: WorkerRequest[] = [];
+    const root = await mkdtemp(join(tmpdir(), "dtr-pipeline-")); directories.push(root, stateDirectoryFor(root)); const calls: WorkerRequest[] = [];
     const failed: Provider = { id: "codex", health: async () => true, run: async (request) => { calls.push(request); return { provider: "codex", model: request.model, requestedEffort: request.effort, output: "", success: false, durationMs: 1, error: "worker failed" }; } };
     await expect(runPipeline(config, { claude: provider("claude", calls), codex: failed }, "debug-review", "Trace", root, { role: "debugger", complexity: "difficult", risk: "low", preferLocal: false, requireLocal: false, privacySensitive: false, diversity: "none", requiresTools: false })).rejects.toThrow("worker failed");
-    const files = await (await import("node:fs/promises")).readdir(join(root, ".dtr", "runs"));
-    const status = await readRunRecord(root, files.find((file) => file.endsWith(".status.json"))!.replace(".status.json", ""));
+    const files = await (await import("node:fs/promises")).readdir(join(stateDirectoryFor(root), "runs"));
+    const status = await readRunRecord(stateDirectoryFor(root), files.find((file) => file.endsWith(".status.json"))!.replace(".status.json", ""));
     expect(status).toMatchObject({ state: "failed" }); expect(calls).toHaveLength(1);
   });
 });

@@ -53,6 +53,14 @@ diversity:
   low: { minimumFamilies: 1 }
   medium: { minimumFamilies: 2 }
   high: { minimumFamilies: 2, requireIndependentReview: true }
+prompt:
+  charsPerToken: 4
+  maxInputTokens: 1500
+  responseReserveTokens: 1024
+  hostContextReserveTokens: {}
+  providers:
+    claude:
+      append: ["Follow applicable CLAUDE.md instructions before starting."]
 `;
 const config = parseConfig(models, policy);
 const profile = (overrides: Partial<TaskProfile> = {}): TaskProfile => ({ role: "reviewer", complexity: "normal", risk: "low", preferLocal: false, requireLocal: false, privacySensitive: false, diversity: "none", requiresTools: false, ...overrides });
@@ -67,6 +75,17 @@ describe("routing policy", () => {
   });
   it("selects the strongest eligible model for the requested role", () => {
     expect(selectModel(config, profile())?.model).toBe("claude-review");
+  });
+  it("prefers the smallest eligible quality tier before role-score tie breaking", () => {
+    const tiered = structuredClone(config);
+    tiered.models.find((model) => model.id === "claude-review")!.tier = "critical";
+    tiered.models.find((model) => model.id === "codex-build")!.tier = "standard";
+    tiered.models.find((model) => model.id === "qwen-local")!.tier = "fast";
+    const normal = selectModel(tiered, profile());
+    expect(normal?.model).toBe("codex-build");
+    expect(normal?.explanation.reasons.join(" ")).toContain("required tier=standard");
+    const difficult = selectModel(tiered, profile({ complexity: "difficult" }));
+    expect(difficult?.model).toBe("claude-review");
   });
   it("uses local preference and enforces a local requirement", () => {
     expect(selectModel(config, profile({ role: "log-analysis", preferLocal: true }))?.model).toBe("qwen-local");
@@ -114,6 +133,7 @@ describe("execution strategies", () => {
     expect(run.routing.selectedModel).toBe("claude-review");
     expect(run.routing.requestedEffort).toBe("medium");
     expect(calls[0]?.readOnly).toBe(true);
+    expect(calls[0]?.prompt).toContain("Follow applicable CLAUDE.md instructions before starting.");
   });
   it("fans out to independent families without passing sibling outputs", async () => {
     const calls: WorkerRequest[] = [];
@@ -121,7 +141,7 @@ describe("execution strategies", () => {
     const runs = await runFanout("/tmp/dtr-routing-test/config", config, providers, "Find the root cause", "/tmp", profile({ role: "debugger", complexity: "difficult", diversity: "medium" }), 2);
     expect(runs.map((run) => run.model)).toEqual(["codex-build", "claude-review"]);
     expect(calls).toHaveLength(2);
-    expect(calls.every((call) => call.prompt.startsWith("Find the root cause") && call.prompt.includes("compact task result") && call.readOnly)).toBe(true);
+    expect(calls.every((call) => call.prompt.startsWith("Find the root cause") && call.prompt.includes("120 words maximum") && call.readOnly)).toBe(true);
   });
   it("returns an explicit degraded result when enough families are unavailable", async () => {
     const calls: WorkerRequest[] = [];

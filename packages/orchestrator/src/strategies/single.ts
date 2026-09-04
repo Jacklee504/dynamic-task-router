@@ -1,10 +1,11 @@
-import { repositoryRootFromConfig, type RouterConfig } from "../config.js";
+import type { RouterConfig } from "../config.js";
 import { compactTaskPrompt } from "../contracts.js";
 import { configuredModel, modelAvailability } from "../routing/runtime.js";
 import { selectEffort } from "../routing/effort.js";
 import { selectModel } from "../routing/selector.js";
 import { requiredFamilies } from "../routing/diversity.js";
 import { writeRunLog } from "../telemetry/run-log.js";
+import { stateDirectoryFor } from "../state.js";
 import type { Provider, RoutingMetadata, TaskProfile, WorkerRequest, WorkerResult, WriteBoundary } from "../types.js";
 
 export type RoutedRun = { result: WorkerResult; runLog: string; routing: RoutingMetadata };
@@ -16,7 +17,7 @@ export async function runSingle(
   prompt: string,
   cwd: string,
   profile: TaskProfile,
-  options: { writeBoundary?: WriteBoundary; excludedFamilies?: Set<string>; modelId?: string; effort?: import("../types.js").Effort; signal?: AbortSignal } = {},
+  options: { writeBoundary?: WriteBoundary; excludedFamilies?: Set<string>; modelId?: string; effort?: import("../types.js").Effort; signal?: AbortSignal; stateRoot?: string } = {},
 ): Promise<RoutedRun> {
   if (requiredFamilies(config, profile.diversity) > 1) {
     throw new Error("This task requires independent model families; use dtr fanout rather than dtr route");
@@ -30,7 +31,7 @@ export async function runSingle(
   const baselineEffort = selectEffort(config, model, profile);
   const effort = options.effort ? { requested: options.effort, effective: model.efforts.includes(options.effort) ? options.effort : baselineEffort.effective } : baselineEffort;
   const request: WorkerRequest = {
-    prompt: compactTaskPrompt(prompt),
+    prompt: compactTaskPrompt(prompt, config.policy.prompt, { provider: model.provider, model: model.model, contextTokens: model.limits.contextTokens }),
     cwd,
     role: profile.role,
     model: model.model,
@@ -51,6 +52,6 @@ export async function runSingle(
     effectiveEffort: effort.effective,
     ...(preferred && preferred.model !== model.id ? { fallbackFrom: preferred.model } : {}),
   };
-  const runLog = await writeRunLog(repositoryRootFromConfig(configDir), request, result, routing);
+  const runLog = await writeRunLog(options.stateRoot ?? stateDirectoryFor(cwd), request, result, routing);
   return { result, runLog, routing };
 }

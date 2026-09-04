@@ -8,10 +8,13 @@ import { classifyTask } from "./routing/classifier.js";
 import { selectEffort } from "./routing/effort.js";
 import { modelAvailability } from "./routing/runtime.js";
 import { selectModel } from "./routing/selector.js";
+import { stateDirectoryFor } from "./state.js";
 import { summarizeRuns } from "./stats.js";
+import { summarizeUsage, type UsageReport } from "./telemetry/usage.js";
 import { runFanout } from "./strategies/fanout.js";
 import { runPipeline } from "./strategies/pipeline.js";
 import { runSingle } from "./strategies/single.js";
+import { buildCompactTaskPacket } from "./contracts.js";
 import { createRunRecord, readRunRecord, writeRunRecord, type RunRecord } from "./telemetry/run-registry.js";
 import type { Effort, ProviderId, TaskProfile, WorkerResult, WorkerRole } from "./types.js";
 export type { Effort, ProviderId, TaskProfile, WorkerResult, WorkerRole } from "./types.js";
@@ -41,6 +44,7 @@ export type ProviderView = { id: ProviderId; healthy: boolean; enabled: boolean;
 export type ModelView = ModelConfig & { available: boolean };
 export type AbortResult = { runId: string; accepted: boolean; state: "aborting" | "unavailable" };
 export type OllamaRuntime = { available: boolean; models: Array<{ name: string; sizeBytes?: number; runtimeSizeBytes?: number; contextLength?: number; expiresAt?: string }>; unavailableReason?: string };
+export type { UsageReport } from "./telemetry/usage.js";
 
 export class DtrApplication {
   private readonly events = new EventEmitter();
@@ -81,39 +85,40 @@ export class DtrApplication {
   }
 
   async run(input: RunRequest): Promise<RunResult> {
-    const config = await this.config(); const profile = this.profile(input); const record = await createRunRecord(input.cwd || this.defaultCwd, "single");
+    const prompt = buildCompactTaskPacket(input.prompt); const stateRoot = stateDirectoryFor(input.cwd || this.defaultCwd); const config = await this.config(); const profile = this.profile(input); const record = await createRunRecord(stateRoot, "single");
     const controller = new AbortController(); this.active.set(record.id, controller);
     this.emit({ type: "run-created", runId: record.id, task: safeTask(input.prompt), timestamp: record.startedAt });
     try {
       const selected = await this.select(input);
       this.emit({ type: "route-selected", runId: record.id, model: selected.model.id, provider: selected.model.provider, effort: selected.effort.effective, timestamp: now() });
-      record.state = "running"; record.stages = [{ id: "route", state: "running", model: selected.model.id }]; await writeRunRecord(input.cwd, record);
+      record.state = "running"; record.stages = [{ id: "route", state: "running", model: selected.model.id }]; await writeRunRecord(stateRoot, record);
       this.emit({ type: "worker-started", runId: record.id, workerId: "route", provider: selected.model.provider, model: selected.model.id, role: profile.role, effort: selected.effort.effective, timestamp: now() });
-      const run = await runSingle(this.configDir, config, this.providers, input.prompt, input.cwd, profile, { ...(input.modelId ? { modelId: input.modelId } : {}), ...(input.effort ? { effort: input.effort } : {}), signal: controller.signal });
+      const run = await runSingle(this.configDir, config, this.providers, prompt, input.cwd, profile, { ...(input.modelId ? { modelId: input.modelId } : {}), ...(input.effort ? { effort: input.effort } : {}), signal: controller.signal, stateRoot });
       const aborted = controller.signal.aborted;
-      record.stages[0]!.state = aborted ? "aborted" : run.result.success ? "succeeded" : "failed"; record.state = aborted ? "aborted" : run.result.success ? "succeeded" : "failed"; record.endedAt = now(); if (!run.result.success && !aborted) record.error = safeError(run.result.error ?? "Worker failed"); await writeRunRecord(input.cwd, record);
+      record.stages[0]!.state = aborted ? "aborted" : run.result.success ? "succeeded" : "failed"; record.state = aborted ? "aborted" : run.result.success ? "succeeded" : "failed"; record.endedAt = now(); if (!run.result.success && !aborted) record.error = safeError(run.result.error ?? "Worker failed"); await writeRunRecord(stateRoot, record);
       if (aborted) this.emit({ type: "run-completed", runId: record.id, outcome: "aborted", timestamp: now() });
       else if (run.result.success) { this.emit({ type: "worker-completed", runId: record.id, workerId: "route", result: run.result, timestamp: now() }); this.emit({ type: "run-completed", runId: record.id, outcome: "succeeded", timestamp: now() }); }
       else { this.emit({ type: "worker-failed", runId: record.id, workerId: "route", error: record.error ?? "Worker failed", timestamp: now() }); this.emit({ type: "run-failed", runId: record.id, error: record.error ?? "Worker failed", timestamp: now() }); }
       return { runId: record.id, routing: run.routing, result: run.result };
     } catch (error) {
-      record.state = controller.signal.aborted ? "aborted" : "failed"; record.error = safeError(error); record.endedAt = now(); await writeRunRecord(input.cwd, record); if (controller.signal.aborted) this.emit({ type: "run-completed", runId: record.id, outcome: "aborted", timestamp: now() }); else this.emit({ type: "run-failed", runId: record.id, error: record.error, timestamp: now() }); throw error;
+      record.state = controller.signal.aborted ? "aborted" : "failed"; record.error = safeError(error); record.endedAt = now(); await writeRunRecord(stateRoot, record); if (controller.signal.aborted) this.emit({ type: "run-completed", runId: record.id, outcome: "aborted", timestamp: now() }); else this.emit({ type: "run-failed", runId: record.id, error: record.error, timestamp: now() }); throw error;
     } finally { this.active.delete(record.id); }
   }
 
   async fanout(input: RunRequest & { families?: number | undefined }): Promise<Array<{ runId: string; model: string; result: WorkerResult }>> {
-    const config = await this.config(); const profile = { ...this.profile(input), diversity: "medium" as const }; const record = await createRunRecord(input.cwd || this.defaultCwd, "fanout"); const controller = new AbortController(); this.active.set(record.id, controller); this.emit({ type: "run-created", runId: record.id, task: safeTask(input.prompt), timestamp: record.startedAt });
+    const prompt = buildCompactTaskPacket(input.prompt); const stateRoot = stateDirectoryFor(input.cwd || this.defaultCwd); const config = await this.config(); const profile = { ...this.profile(input), diversity: "medium" as const }; const record = await createRunRecord(stateRoot, "fanout"); const controller = new AbortController(); this.active.set(record.id, controller); this.emit({ type: "run-created", runId: record.id, task: safeTask(input.prompt), timestamp: record.startedAt });
     try {
-      record.state = "running"; await writeRunRecord(input.cwd, record); const runs = await runFanout(this.configDir, config, this.providers, input.prompt, input.cwd, profile, input.families, controller.signal);
-      record.state = runs.every((run) => run.result.success) ? "succeeded" : "failed"; record.endedAt = now(); record.stages = runs.map((run) => ({ id: run.model, model: run.model, state: run.result.success ? "succeeded" : "failed" })); await writeRunRecord(input.cwd, record); this.emit({ type: "run-completed", runId: record.id, outcome: record.state, timestamp: now() }); return runs.map((run) => ({ runId: record.id, model: run.model, result: run.result }));
+      record.state = "running"; await writeRunRecord(stateRoot, record); const runs = await runFanout(this.configDir, config, this.providers, prompt, input.cwd, profile, input.families, controller.signal, stateRoot);
+      record.state = runs.every((run) => run.result.success) ? "succeeded" : "failed"; record.endedAt = now(); record.stages = runs.map((run) => ({ id: run.model, model: run.model, state: run.result.success ? "succeeded" : "failed" })); await writeRunRecord(stateRoot, record); this.emit({ type: "run-completed", runId: record.id, outcome: record.state, timestamp: now() }); return runs.map((run) => ({ runId: record.id, model: run.model, result: run.result }));
     } finally { this.active.delete(record.id); }
   }
 
-  async pipeline(input: RunRequest & { template: string; write?: boolean; scope?: string[] }) { const config = await this.config(); return runPipeline(config, this.providers, input.template, input.prompt, input.cwd, this.profile(input), { write: input.write, scope: input.scope }); }
+  async pipeline(input: RunRequest & { template: string; write?: boolean; scope?: string[] }) { const config = await this.config(); return runPipeline(config, this.providers, input.template, buildCompactTaskPacket(input.prompt), input.cwd, this.profile(input), { write: input.write, scope: input.scope }); }
   async abort(runId: string): Promise<AbortResult> { const controller = this.active.get(runId); if (!controller) return { runId, accepted: false, state: "unavailable" }; this.emit({ type: "run-aborting", runId, timestamp: now() }); controller.abort(); return { runId, accepted: true, state: "aborting" }; }
-  async getRun(runId: string): Promise<RunRecord | null> { try { return await readRunRecord(this.defaultCwd, runId); } catch { return null; } }
-  async listRuns(limit = 30): Promise<RunRecord[]> { try { const entries = (await readdir(resolve(this.defaultCwd, ".dtr", "runs"))).filter((entry) => entry.endsWith(".status.json")).sort().reverse().slice(0, limit); return Promise.all(entries.map((entry) => readRunRecord(this.defaultCwd, entry.replace(".status.json", "")))); } catch { return []; } }
-  async stats() { return summarizeRuns(this.defaultCwd); }
+  async getRun(runId: string): Promise<RunRecord | null> { try { return await readRunRecord(stateDirectoryFor(this.defaultCwd), runId); } catch { return null; } }
+  async listRuns(limit = 30): Promise<RunRecord[]> { const stateRoot = stateDirectoryFor(this.defaultCwd); try { const entries = (await readdir(resolve(stateRoot, "runs"))).filter((entry) => entry.endsWith(".status.json")).sort().reverse().slice(0, limit); return Promise.all(entries.map((entry) => readRunRecord(stateRoot, entry.replace(".status.json", "")))); } catch { return []; } }
+  async stats() { return summarizeRuns(stateDirectoryFor(this.defaultCwd)); }
+  async usage(): Promise<UsageReport> { return summarizeUsage(stateDirectoryFor(this.defaultCwd)); }
 }
 
 function now(): string { return new Date().toISOString(); }

@@ -1,19 +1,20 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import { assertCleanGitRepository, createWorktree, verifyWriteBoundary } from "../src/worktrees/manager.js";
+import { stateDirectoryFor } from "../src/state.js";
 
 const exec = promisify(execFile);
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
 async function repository(): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), "dtr-worktree-")); directories.push(root);
+  const root = await mkdtemp(join(tmpdir(), "dtr-worktree-")); directories.push(root, stateDirectoryFor(root));
   await exec("git", ["init", "-b", "main", root]); await exec("git", ["-C", root, "config", "user.email", "test@example.com"]); await exec("git", ["-C", root, "config", "user.name", "DTR Test"]);
-  await writeFile(join(root, ".gitignore"), ".dtr/\n"); await writeFile(join(root, "README.md"), "initial\n"); await exec("git", ["-C", root, "add", "."]); await exec("git", ["-C", root, "commit", "-m", "initial"]);
+  await writeFile(join(root, "README.md"), "initial\n"); await exec("git", ["-C", root, "add", "."]); await exec("git", ["-C", root, "commit", "-m", "initial"]);
   return root;
 }
 
@@ -21,6 +22,8 @@ describe("isolated worktrees", () => {
   it("creates unique DTR branches without changing the base checkout", async () => {
     const root = await repository(); const first = await createWorktree(root, "run-1", "implement"); const second = await createWorktree(root, "run-2", "implement");
     expect(first.branch).toBe("dtr/run-1-implement"); expect(second.branch).toBe("dtr/run-2-implement");
+    expect(first.worktree.startsWith(stateDirectoryFor(root))).toBe(true);
+    await expect(access(join(root, ".dtr"))).rejects.toThrow();
     expect((await exec("git", ["-C", root, "branch", "--show-current"])).stdout.trim()).toBe("main");
   });
   it("rejects traversal in worktree identities and write scopes", async () => {

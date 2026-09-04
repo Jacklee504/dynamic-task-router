@@ -4,6 +4,8 @@ import type { ModelSelection, SelectionExplanation, TaskProfile } from "../types
 
 export type Availability = Record<string, boolean | undefined>;
 export type SelectionOptions = { requireWrite?: boolean; modelId?: string };
+const tiers = ["fast", "standard", "deep", "critical"] as const;
+type ModelTier = typeof tiers[number];
 
 export function selectModel(
   config: RouterConfig,
@@ -13,7 +15,8 @@ export function selectModel(
   options: SelectionOptions = {},
 ): ModelSelection | undefined {
   const rejected: Record<string, string[]> = {};
-  const eligible: Array<{ model: ModelConfig; score: number; reasons: string[] }> = [];
+  const eligible: Array<{ model: ModelConfig; score: number; tierDistance: number; reasons: string[] }> = [];
+  const requiredTier = minimumTier(task);
   for (const model of config.models) {
     const reasons: string[] = [];
     const roleScore = model.roles[task.role];
@@ -40,14 +43,17 @@ export function selectModel(
       continue;
     }
     let score = roleScore;
-    const scoreReasons = [`${task.role} role score=${roleScore}`];
+    const tierDistance = tierIndex(model.tier) - tierIndex(requiredTier);
+    const scoreReasons = [`${task.role} role score=${roleScore}`, `tier=${model.tier}; required tier=${requiredTier}`];
     if (task.preferLocal && model.local) { score += 2; scoreReasons.push("local preference bonus=2"); }
     if (task.risk === "high") { score += 2; scoreReasons.push("high-risk suitability bonus=2"); }
     if (task.complexity === "extreme") { score += 1; scoreReasons.push("extreme-complexity suitability bonus=1"); }
     if (config.policy.budget.mode === "prefer_free" && estimatedCost === 0) { score += 1; scoreReasons.push("free-model preference bonus=1"); }
-    eligible.push({ model, score, reasons: scoreReasons });
+    if (tierDistance < 0) scoreReasons.push(`tier fallback: ${model.tier} is below required ${requiredTier}`);
+    else if (tierDistance > 0) scoreReasons.push(`stronger-than-required tier: ${model.tier}`);
+    eligible.push({ model, score, tierDistance, reasons: scoreReasons });
   }
-  eligible.sort((left, right) => right.score - left.score || left.model.id.localeCompare(right.model.id));
+  eligible.sort((left, right) => compareTierDistance(left.tierDistance, right.tierDistance) || right.score - left.score || left.model.id.localeCompare(right.model.id));
   const winner = eligible[0];
   if (!winner) return undefined;
   const explanation: SelectionExplanation = {
@@ -57,6 +63,24 @@ export function selectModel(
     rejected,
   };
   return { model: winner.model.id, score: winner.score, explanation };
+}
+
+/** Select the smallest suitable quality tier before comparing role priors. */
+function minimumTier(task: TaskProfile): ModelTier {
+  const complexity: Record<TaskProfile["complexity"], ModelTier> = { trivial: "fast", normal: "standard", difficult: "deep", extreme: "critical" };
+  const risk: Record<TaskProfile["risk"], ModelTier> = { low: "fast", medium: "standard", high: "deep" };
+  return tiers[Math.max(tierIndex(complexity[task.complexity]), tierIndex(risk[task.risk]))]!;
+}
+
+function tierIndex(tier: ModelTier): number { return tiers.indexOf(tier); }
+
+function compareTierDistance(left: number, right: number): number {
+  // Any tier meeting the requirement beats a downgrade. Among suitable tiers,
+  // prefer the smallest escalation; only then use the model's role score.
+  const leftSuitable = left >= 0; const rightSuitable = right >= 0;
+  if (leftSuitable !== rightSuitable) return leftSuitable ? -1 : 1;
+  if (leftSuitable) return left - right;
+  return right - left;
 }
 
 export function estimateCost(model: ModelConfig, inputTokens = 1_000, outputTokens = 500): number {

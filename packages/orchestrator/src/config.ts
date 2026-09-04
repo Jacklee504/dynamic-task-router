@@ -6,7 +6,8 @@ import { z } from "zod";
 
 import type { Effort, ProviderId, WorkerRole } from "./types.js";
 
-const providerSchema = z.enum(["claude", "codex", "ollama", "openrouter"]);
+const providerSchema = z.enum(["claude", "codex", "ollama", "openrouter", "featherless", "antigravity"]);
+const modelTierSchema = z.enum(["fast", "standard", "deep", "critical"]);
 const effortSchema = z.enum(["low", "medium", "high", "xhigh", "max"]);
 const roleSchema = z.enum([
   "architect",
@@ -23,6 +24,7 @@ const modelSchema = z.object({
   provider: providerSchema,
   family: z.string().min(1),
   model: z.string().min(1),
+  tier: modelTierSchema.default("standard"),
   enabled: z.boolean(),
   local: z.boolean(),
   roles: z.record(roleSchema, z.number().int().min(0).max(10)),
@@ -77,6 +79,23 @@ const routingPolicySchema = z.object({
     minimumFamilies: z.number().int().min(1),
     requireIndependentReview: z.boolean().optional(),
   })),
+  prompt: z.object({
+    charsPerToken: z.number().int().min(1).max(16),
+    maxInputTokens: z.number().int().positive(),
+    responseReserveTokens: z.number().int().nonnegative(),
+    hostContextReserveTokens: z.object({
+      claude: z.number().int().nonnegative().optional(), codex: z.number().int().nonnegative().optional(),
+      ollama: z.number().int().nonnegative().optional(), openrouter: z.number().int().nonnegative().optional(), featherless: z.number().int().nonnegative().optional(), antigravity: z.number().int().nonnegative().optional(),
+    }).default({}),
+    providers: z.object({
+      claude: z.object({ append: z.array(z.string().min(1).max(400)).max(3) }).optional(),
+      codex: z.object({ append: z.array(z.string().min(1).max(400)).max(3) }).optional(),
+      ollama: z.object({ append: z.array(z.string().min(1).max(400)).max(3) }).optional(),
+      openrouter: z.object({ append: z.array(z.string().min(1).max(400)).max(3) }).optional(),
+      featherless: z.object({ append: z.array(z.string().min(1).max(400)).max(3) }).optional(),
+      antigravity: z.object({ append: z.array(z.string().min(1).max(400)).max(3) }).optional(),
+    }).default({}),
+  }).default({ charsPerToken: 4, maxInputTokens: 1500, responseReserveTokens: 1024, hostContextReserveTokens: {}, providers: {} }),
   budget: z.object({ mode: z.enum(["ignore", "prefer_free", "capped"]), max_estimated_cost_usd: z.number().nonnegative() }).default({ mode: "ignore", max_estimated_cost_usd: 0 }),
 });
 
@@ -91,6 +110,7 @@ export type ModelConfig = {
   provider: ProviderId;
   family: string;
   model: string;
+  tier: z.infer<typeof modelTierSchema>;
   enabled: boolean;
   local: boolean;
   roles: Record<WorkerRole, number>;
@@ -118,6 +138,7 @@ export function parseConfig(modelsText: string, policyText: string, pipelinesTex
       provider: model.provider,
       family: model.family,
       model: model.model,
+      tier: model.tier,
       enabled: model.enabled,
       local: model.local,
       roles: model.roles,

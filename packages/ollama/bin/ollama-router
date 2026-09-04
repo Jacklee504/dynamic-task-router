@@ -1,0 +1,160 @@
+#!/usr/bin/env sh
+# Create and run compact, sequential Ollama task packets.
+set -eu
+
+program=${0##*/}
+
+die() {
+  printf '%s\n' "$program: $*" >&2
+  exit 1
+}
+
+usage() {
+  cat <<'EOF'
+Usage:
+  ollama-router packet --goal TEXT --scope TEXT --output FILE [options]
+  ollama-router run --exclusive --model MODEL --packet FILE [--output FILE] [--keep-loaded]
+
+packet options:
+  --role implement|review     Packet role (default: implement)
+  --do-not TEXT               Non-goals and safety boundary
+  --check TEXT                Verification the parent will run
+  --context FILE              Small, curated source context to copy into the packet
+  --max-context-bytes NUMBER  Context limit (default: 16384)
+
+run options:
+  --exclusive                 Confirm Codex and other conflicting hosts are paused or closed
+  --keep-loaded               Do not unload the model after a successful run
+
+The wrapper never gives the model repository access. By default it stops the
+Ollama model after a successful run to release local memory.
+EOF
+}
+
+need_value() {
+  [ "$#" -ge 2 ] || die "$1 requires a value"
+}
+
+packet() {
+  role=implement
+  goal=
+  scope=
+  do_not='Do not use tools, claim edits, claim checks, or invent repository context.'
+  check='State what evidence the parent should verify.'
+  context=
+  max_context_bytes=16384
+  output=
+
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --role) need_value "$@"; role=$2; shift 2 ;;
+      --goal) need_value "$@"; goal=$2; shift 2 ;;
+      --scope) need_value "$@"; scope=$2; shift 2 ;;
+      --do-not) need_value "$@"; do_not=$2; shift 2 ;;
+      --check) need_value "$@"; check=$2; shift 2 ;;
+      --context) need_value "$@"; context=$2; shift 2 ;;
+      --max-context-bytes) need_value "$@"; max_context_bytes=$2; shift 2 ;;
+      --output) need_value "$@"; output=$2; shift 2 ;;
+      -h|--help) usage; exit 0 ;;
+      *) die "unknown packet option: $1" ;;
+    esac
+  done
+
+  case "$role" in implement|review) ;; *) die "role must be implement or review" ;; esac
+  case "$max_context_bytes" in ''|*[!0-9]*) die "--max-context-bytes must be a non-negative integer" ;; esac
+  [ -n "$goal" ] || die "--goal is required"
+  [ -n "$scope" ] || die "--scope is required"
+  [ -n "$output" ] || die "--output is required"
+  [ ! -e "$output" ] || die "refusing to overwrite: $output"
+  [ -z "$context" ] || [ -r "$context" ] || die "context is not readable: $context"
+
+  if [ -n "$context" ]; then
+    context_bytes=$(wc -c < "$context" | tr -d ' ')
+    [ "$context_bytes" -le "$max_context_bytes" ] || die "context is ${context_bytes} bytes; limit is ${max_context_bytes}"
+  fi
+
+  output_dir=${output%/*}
+  [ "$output_dir" = "$output" ] || mkdir -p "$output_dir"
+
+  {
+    printf '%s\n\n' '# Offline Dynamic Task Router Packet'
+    printf 'ROLE: %s\n' "$role"
+    printf 'GOAL: %s\n' "$goal"
+    printf 'SCOPE: %s\n' "$scope"
+    printf 'DO NOT: %s\n' "$do_not"
+    printf 'CHECK: %s\n\n' "$check"
+    printf '%s\n' 'You are an offline advisory worker. You have no terminal or file access.'
+    printf '%s\n' 'Do not claim to edit files or execute checks.'
+    if [ "$role" = review ]; then
+      printf '%s\n\n' 'Find actionable regressions only; do not propose broad rewrites.'
+    else
+      printf '%s\n\n' 'Provide a minimal proposed unified diff only when the supplied context is sufficient.'
+    fi
+    printf '%s\n' 'RETURN:'
+    printf '%s\n' 'SUMMARY: at most five lines'
+    printf '%s\n' 'PROPOSED DIFF: unified diff or `insufficient context`'
+    printf '%s\n\n' 'RISKS: concrete uncertainty or `none`'
+    if [ -n "$context" ]; then
+      printf '%s\n' '--- SUPPLIED CONTEXT ---'
+      cat "$context"
+      printf '\n%s\n' '--- END SUPPLIED CONTEXT ---'
+    fi
+  } > "$output"
+
+  printf 'Wrote offline packet: %s\n' "$output"
+}
+
+run() {
+  model=
+  packet_file=
+  output=
+  exclusive=false
+  keep_loaded=false
+
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --model) need_value "$@"; model=$2; shift 2 ;;
+      --packet) need_value "$@"; packet_file=$2; shift 2 ;;
+      --output) need_value "$@"; output=$2; shift 2 ;;
+      --exclusive) exclusive=true; shift ;;
+      --keep-loaded) keep_loaded=true; shift ;;
+      -h|--help) usage; exit 0 ;;
+      *) die "unknown run option: $1" ;;
+    esac
+  done
+
+  [ "$exclusive" = true ] || die "--exclusive is required: pause or close Codex first"
+  [ -n "$model" ] || die "--model is required"
+  [ -n "$packet_file" ] || die "--packet is required"
+  [ -r "$packet_file" ] || die "packet is not readable: $packet_file"
+  command -v ollama >/dev/null 2>&1 || die "ollama command not found"
+  [ -z "$output" ] || [ ! -e "$output" ] || die "refusing to overwrite: $output"
+
+  if [ "$keep_loaded" = false ]; then
+    cleanup_model() {
+      status=$?
+      trap - EXIT
+      ollama stop "$model" >/dev/null 2>&1 || true
+      printf 'Stopped model to release local memory: %s\n' "$model" >&2
+      exit "$status"
+    }
+    trap cleanup_model EXIT
+  fi
+
+  if [ -n "$output" ]; then
+    output_dir=${output%/*}
+    [ "$output_dir" = "$output" ] || mkdir -p "$output_dir"
+    ollama run "$model" < "$packet_file" > "$output"
+    printf 'Wrote Ollama result: %s\n' "$output"
+  else
+    ollama run "$model" < "$packet_file"
+  fi
+}
+
+command=${1:-help}
+case "$command" in
+  packet) shift; packet "$@" ;;
+  run) shift; run "$@" ;;
+  help|-h|--help) usage ;;
+  *) die "unknown command: $command" ;;
+esac

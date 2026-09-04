@@ -16,6 +16,7 @@ export type RunLog = {
   durationMs: number;
   timestamp: string;
   error?: string;
+  usage?: WorkerResult["usage"];
   providerMetadata?: WorkerResult["providerMetadata"];
 };
 
@@ -36,21 +37,22 @@ export function makeRunLog(
     durationMs: result.durationMs,
     timestamp,
     ...(result.error ? { error: result.error } : {}),
+    ...(result.usage ? { usage: result.usage } : {}),
     ...(result.providerMetadata ? { providerMetadata: result.providerMetadata } : {}),
     ...(routing ? { routing } : {}),
   };
 }
 
 export async function writeRunLog(
-  repositoryRoot: string,
+  stateRoot: string,
   request: WorkerRequest,
   result: WorkerResult,
   routing?: RoutingMetadata,
 ): Promise<string> {
-  const directory = resolve(repositoryRoot, ".dtr", "runs");
-  await mkdir(directory, { recursive: true });
+  const directory = resolve(stateRoot, "runs");
+  await mkdir(directory, { recursive: true, mode: 0o700 });
   const filename = `${new Date().toISOString().replace(/[:.]/g, "-")}-${randomUUID()}.json`;
   const path = resolve(directory, filename);
-  await writeFile(path, `${JSON.stringify(makeRunLog(request, result, undefined, routing), null, 2)}\n`, "utf8");
+  await writeFile(path, `${JSON.stringify(makeRunLog(request, result, undefined, routing), null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
   return path;
 }

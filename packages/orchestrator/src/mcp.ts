@@ -6,13 +6,14 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { DtrApplication } from "./application.js";
+import { DISPATCH_CONTRACT, MAX_COMPACT_TASK_CHARS, MAX_COMPACT_TASK_WORDS, normalizeCompactTask } from "./contracts.js";
 import { classifyTask } from "./routing/classifier.js";
 
 const role = z.enum(["architect", "implementer", "debugger", "reviewer", "researcher", "test", "log-analysis"]);
 const profileInput = {
-  role, prompt: z.string().min(1).max(6000), cwd: z.string().min(1).max(2048).optional(),
+  role, prompt: z.string().min(1).max(MAX_COMPACT_TASK_CHARS).refine((value) => (value.match(/\S+/g)?.length ?? 0) <= MAX_COMPACT_TASK_WORDS, `Task must contain at most ${MAX_COMPACT_TASK_WORDS} words.`), cwd: z.string().min(1).max(2048).optional(),
   complexity: z.enum(["trivial", "normal", "difficult", "extreme"]).optional(), risk: z.enum(["low", "medium", "high"]).optional(), diversity: z.enum(["none", "low", "medium", "high"]).optional(),
-  preferLocal: z.boolean().optional(), localOnly: z.boolean().optional(), privacySensitive: z.boolean().optional(), privateCode: z.boolean().optional(), allowRemote: z.boolean().optional(), allowedFamilies: z.array(z.string().min(1)).max(8).optional(), allowedProviders: z.array(z.enum(["claude", "codex", "ollama", "openrouter"])).max(4).optional(), requiresTools: z.boolean().optional(),
+  preferLocal: z.boolean().optional(), localOnly: z.boolean().optional(), privacySensitive: z.boolean().optional(), privateCode: z.boolean().optional(), allowRemote: z.boolean().optional(), allowedFamilies: z.array(z.string().min(1)).max(8).optional(), allowedProviders: z.array(z.enum(["claude", "codex", "ollama", "openrouter", "featherless", "antigravity"])).max(6).optional(), requiresTools: z.boolean().optional(),
 };
 export const mcpProfileSchema = z.object(profileInput).strict();
 const configDir = resolve(dirname(fileURLToPath(import.meta.url)), "../../../config");
@@ -41,11 +42,15 @@ export function createMcpServer(): McpServer {
   server.registerTool("dtr_models", { description: "List configured model routing metadata without credentials.", inputSchema: {} }, async () => {
     try { return text(await new DtrApplication(configDir).listModels()); } catch (reason) { return error(reason); }
   });
+  server.registerTool("dtr_start", { description: "Return DTR's compact dispatch contract before constructing a routed task. Does not invoke a model.", inputSchema: {} }, async () => text({ contract: DISPATCH_CONTRACT }));
+  server.registerTool("dtr_usage", { description: "Summarize DTR execution telemetry for every provider. Account quotas are not scraped.", inputSchema: { cwd: z.string().min(1).max(2048).optional() } }, async (input) => {
+    try { return text(await new DtrApplication(configDir, cwd(input.cwd)).usage()); } catch (reason) { return error(reason); }
+  });
   server.registerTool("dtr_select", { description: "Dry-run deterministic read-only selection. Does not invoke a model.", inputSchema: profileInput }, async (input) => {
     try { return text(await new DtrApplication(configDir, cwd(input.cwd)).select(applicationInput(input))); } catch (reason) { return error(reason); }
   });
   server.registerTool("dtr_run", { description: "Select and run one bounded, read-only router task.", inputSchema: profileInput }, async (input) => {
-    try { const run = await new DtrApplication(configDir, cwd(input.cwd)).run({ ...applicationInput(input), cwd: cwd(input.cwd) }); return text({ runId: run.runId, routing: run.routing, success: run.result.success, result: run.result.output.slice(0, 1200) }); } catch (reason) { return error(reason); }
+    try { normalizeCompactTask(input.prompt); const run = await new DtrApplication(configDir, cwd(input.cwd)).run({ ...applicationInput(input), cwd: cwd(input.cwd) }); return text({ runId: run.runId, routing: run.routing, success: run.result.success, result: run.result.output.slice(0, 1200) }); } catch (reason) { return error(reason); }
   });
   server.registerTool("dtr_fanout", { description: "Run the same bounded read-only task through independent model families.", inputSchema: { ...profileInput, families: z.number().int().min(2).max(4) } }, async (input) => {
     try { const run = await new DtrApplication(configDir, cwd(input.cwd)).fanout({ ...applicationInput({ ...input, diversity: "medium" }), cwd: cwd(input.cwd), families: input.families }); return text(run.map((item) => ({ runId: item.runId, model: item.model, success: item.result.success, result: item.result.output.slice(0, 1200) }))); } catch (reason) { return error(reason); }

@@ -1,10 +1,11 @@
-import { repositoryRootFromConfig, type RouterConfig } from "../config.js";
+import type { RouterConfig } from "../config.js";
 import { compactTaskPrompt } from "../contracts.js";
 import { requiredFamilies } from "../routing/diversity.js";
 import { selectEffort } from "../routing/effort.js";
 import { configuredModel, modelAvailability } from "../routing/runtime.js";
 import { eligibleSelections } from "../routing/selector.js";
 import { writeRunLog } from "../telemetry/run-log.js";
+import { stateDirectoryFor } from "../state.js";
 import type { Provider, RoutingMetadata, TaskProfile, WorkerRequest, WorkerResult } from "../types.js";
 
 export type FanoutRun = { model: string; result: WorkerResult; runLog: string; routing: RoutingMetadata };
@@ -18,6 +19,7 @@ export async function runFanout(
   profile: TaskProfile,
   requestedFamilies?: number,
   signal?: AbortSignal,
+  stateRoot?: string,
 ): Promise<FanoutRun[]> {
   const minimumFamilies = requestedFamilies ?? requiredFamilies(config, profile.diversity);
   if (minimumFamilies < 2) throw new Error("dtr fanout requires at least two independent families");
@@ -31,7 +33,7 @@ export async function runFanout(
     const model = configuredModel(config, selection.model);
     const effort = selectEffort(config, model, profile);
     const request: WorkerRequest = {
-      prompt: compactTaskPrompt(prompt),
+      prompt: compactTaskPrompt(prompt, config.policy.prompt, { provider: model.provider, model: model.model, contextTokens: model.limits.contextTokens }),
       cwd,
       role: profile.role,
       model: model.model,
@@ -51,7 +53,7 @@ export async function runFanout(
       effectiveEffort: effort.effective,
       ...(preferred[0] && preferred[0].model !== model.id ? { fallbackFrom: preferred[0].model } : {}),
     };
-    const runLog = await writeRunLog(repositoryRootFromConfig(configDir), request, result, routing);
+    const runLog = await writeRunLog(stateRoot ?? stateDirectoryFor(cwd), request, result, routing);
     return { model: model.id, result, runLog, routing };
   }));
 }

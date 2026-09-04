@@ -1,4 +1,4 @@
-export type ProviderId = "claude" | "codex" | "ollama" | "openrouter";
+export type ProviderId = "claude" | "codex" | "ollama" | "openrouter" | "featherless" | "antigravity";
 
 export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
 
@@ -95,7 +95,19 @@ export interface WorkerResult {
   success: boolean;
   durationMs: number;
   error?: string;
+  usage?: TokenUsage;
   providerMetadata?: Record<string, string | number | boolean>;
+}
+
+export interface TokenUsage {
+  /** Reported by the provider response, never inferred from text length. */
+  source: "provider-reported";
+  inputTokens?: number;
+  cachedInputTokens?: number;
+  outputTokens?: number;
+  reasoningTokens?: number;
+  totalTokens?: number;
+  costUsd?: number;
 }
 
 export interface Provider {
