@@ -16,7 +16,7 @@ import { runPipeline } from "./strategies/pipeline.js";
 import { runSingle } from "./strategies/single.js";
 import { buildCompactTaskPacket } from "./contracts.js";
 import { createRunRecord, readRunRecord, writeRunRecord, type RunRecord } from "./telemetry/run-registry.js";
-import type { Effort, ProviderId, TaskProfile, WorkerLifecycle, WorkerResult, WorkerRole } from "./types.js";
+import type { Effort, Provider, ProviderId, TaskProfile, WorkerLifecycle, WorkerResult, WorkerRole } from "./types.js";
 export type { Effort, ProviderId, TaskProfile, WorkerResult, WorkerRole } from "./types.js";
 export type { RunRecord } from "./telemetry/run-registry.js";
 
@@ -49,9 +49,11 @@ export type { UsageReport } from "./telemetry/usage.js";
 export class DtrApplication {
   private readonly events = new EventEmitter();
   private readonly active = new Map<string, AbortController>();
-  private readonly providers = createProviders(new NodeProcessRunner());
+  private readonly providers: Record<ProviderId, Provider>;
 
-  constructor(private readonly configDir: string, private readonly defaultCwd = process.cwd()) {}
+  constructor(private readonly configDir: string, private readonly defaultCwd = process.cwd(), providers?: Record<ProviderId, Provider>) {
+    this.providers = providers ?? createProviders(new NodeProcessRunner());
+  }
 
   onEvent(listener: (event: DtrEvent) => void): () => void { this.events.on("event", listener); return () => this.events.off("event", listener); }
   private emit(event: DtrEvent): void { this.events.emit("event", event); }
