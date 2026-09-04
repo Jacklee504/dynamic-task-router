@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { ClaudeProvider, createClaudeCommand } from "../src/providers/claude.js";
 import { createCodexCommand } from "../src/providers/codex.js";
 import { createOllamaCommand, OllamaProvider } from "../src/providers/ollama.js";
+import { OpenRouterProvider } from "../src/providers/openrouter.js";
 import { resolveCodexCommand } from "../src/providers/shared.js";
 import type { Command, ProcessResult, ProcessRunner, WorkerRequest } from "../src/types.js";
 
@@ -60,6 +61,23 @@ describe("provider command construction", () => {
     const command = createCodexCommand({ ...request, readOnly: false, writeBoundary: { allowedPaths: ["src"] } });
     expect(command.args).toEqual(expect.arrayContaining(["--sandbox", "workspace-write"]));
     expect(command.args).not.toContain("danger-full-access");
+  });
+});
+
+describe("provider abort forwarding", () => {
+  it("forwards the caller's abort signal to the OpenRouter fetch", async () => {
+    let received: AbortSignal | null | undefined;
+    const provider = new OpenRouterProvider("test-key", async (_input, init) => {
+      received = init?.signal;
+      await new Promise<void>((_, reject) => received?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))));
+      return new Response("unreachable", { status: 200 });
+    });
+    const controller = new AbortController();
+    const promise = provider.run({ ...request, signal: controller.signal });
+    controller.abort();
+    const result = await promise;
+    expect(received).toBeInstanceOf(AbortSignal);
+    expect(result).toMatchObject({ provider: "openrouter", success: false });
   });
 });
 

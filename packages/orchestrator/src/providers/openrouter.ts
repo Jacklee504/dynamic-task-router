@@ -13,10 +13,11 @@ export class OpenRouterProvider implements Provider {
     if (!request.readOnly) return failed(request, "OpenRouter write workers are unsupported in this release.");
     if (!this.apiKey) return failed(request, "OpenRouter is disabled because no credential is available.");
     const startedAt = Date.now();
-    const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), request.timeoutMs ?? 120_000);
+    const timeoutSignal = AbortSignal.timeout(request.timeoutMs ?? 120_000);
+    const signal = request.signal ? AbortSignal.any([request.signal, timeoutSignal]) : timeoutSignal;
     try {
       const response = await this.fetcher(`${endpoint}/chat/completions`, {
-        method: "POST", signal: controller.signal,
+        method: "POST", signal,
         headers: { Authorization: `Bearer ${this.apiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({ model: request.model, messages: [{ role: "user", content: request.prompt }], reasoning: { effort: request.effort }, max_tokens: 700 }),
       });
@@ -24,7 +25,6 @@ export class OpenRouterProvider implements Provider {
       if (!response.ok) return failed(request, `OpenRouter request failed with status ${response.status}`);
       return { provider: this.id, model: body.model ?? request.model, requestedEffort: request.effort, effectiveEffort: request.effort, output: truncateTaskResult(body.choices?.[0]?.message?.content ?? ""), success: true, durationMs: Date.now() - startedAt, providerMetadata: { ...(body.model ? { returned_model: body.model } : {}), ...(body.usage?.total_tokens !== undefined ? { total_tokens: body.usage.total_tokens } : {}) } };
     } catch { return failed(request, "OpenRouter request failed"); }
-    finally { clearTimeout(timer); }
   }
 }
 
