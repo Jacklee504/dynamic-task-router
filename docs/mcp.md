@@ -11,8 +11,8 @@ npm run dtr:mcp
 ```
 
 The server exposes only typed router tools: `dtr_health`, `dtr_models`,
-`dtr_start`, `dtr_usage`, `dtr_select`, `dtr_run`, `dtr_fanout`,
-`dtr_pipeline`, and `dtr_status`.
+`dtr_start`, `dtr_doctor`, `dtr_usage`, `dtr_select`, `dtr_prepare`,
+`dtr_run`, `dtr_fanout`, `dtr_pipeline`, `dtr_status`, and `dtr_outcome`.
 There is no shell passthrough, executable override, environment-variable tool,
 or raw provider command.
 
@@ -41,10 +41,17 @@ npm --prefix /absolute/path/to/dynamic-task-router run dtr:mcp
 Keep the DTR server local. It relies on each installed provider CLI’s existing
 authentication and never receives or stores provider API keys.
 
-MCP callers should first use `dtr_start`, then pass a task of at most 100 words
-to a routed tool. The schema validates that limit; the application constructs
-the same compact task packet as the CLI and caps returned handoffs to 1,200
-characters. `cwd` is the target repository for a run; it is not an executable
-command. Prompts/results are not persisted by default; optional metadata-only
-records are written in DTR's private temporary state directory, never into the
-target repository.
+MCP callers should use this progression: `dtr_start` once for the compact
+contract; `dtr_doctor` when availability/auth needs checking; `dtr_prepare`
+for every candidate task; then `dtr_run` (or deliberately `dtr_fanout` / a
+pipeline). After parent review, use `dtr_outcome` to record whether the result
+was accepted, rejected, partial, or escalated.
+
+`dtr_prepare`, `dtr_run`, `dtr_fanout`, and `dtr_pipeline` accept an optional
+`files` array of at most eight relative paths. It is a path list, never source
+content. The schema validates the 100-word task limit and path boundary; the
+application constructs the same compact task packet as the CLI and caps
+returned handoffs to 1,200 characters. `cwd` is the target repository for a
+run; it is not an executable command. Prompts/results are not persisted by
+default; optional metadata-only records are written in DTR's private temporary
+state directory, never into the target repository.

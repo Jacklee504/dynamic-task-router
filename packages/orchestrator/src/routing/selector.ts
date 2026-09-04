@@ -3,7 +3,7 @@ import { selectEffort } from "./effort.js";
 import type { ModelSelection, SelectionExplanation, TaskProfile } from "../types.js";
 
 export type Availability = Record<string, boolean | undefined>;
-export type SelectionOptions = { requireWrite?: boolean; modelId?: string };
+export type SelectionOptions = { requireWrite?: boolean; modelId?: string; excludedModels?: Set<string> };
 const tiers = ["fast", "standard", "deep", "critical"] as const;
 type ModelTier = typeof tiers[number];
 
@@ -23,6 +23,7 @@ export function selectModel(
     const minimumRole = task.risk === "high" || task.complexity === "extreme" ? 8 : task.complexity === "difficult" ? 6 : 1;
     if (!model.enabled) reasons.push("disabled");
     if (options.modelId && model.id !== options.modelId) reasons.push("not selected by the explicit model override");
+    if (options.excludedModels?.has(model.id)) reasons.push("failed selected-model preflight");
     if (availability[model.id] === false) reasons.push("provider unavailable");
     if (excludedFamilies.has(model.family)) reasons.push(`family '${model.family}' already selected`);
     if (task.requireLocal && !model.local) reasons.push("local-only task");

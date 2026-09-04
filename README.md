@@ -11,8 +11,9 @@ self-contained, while `core/` defines the portable behavior they share.
 ## Executable orchestrator
 
 `packages/orchestrator/` is an explicit, read-only runtime alongside the host
-adapters. It uses existing Claude Code, Codex, and Google Antigravity CLI
-authentication—never API keys for those account-backed routes—and can invoke
+adapters. It uses existing Claude Code, Codex, Google Antigravity CLI, and
+OpenCode CLI authentication/configuration—never API keys for those
+account-backed routes—and can invoke
 local Ollama models through Codex OSS mode. It selects a model and internal
 effort independently, can fan out read-only analysis to independent model
 families, and supports optional OpenRouter and Featherless API adapters.
@@ -23,6 +24,7 @@ npm install
 npm run link:local # once: installs the `dtr` and `dtr-mcp` commands for this checkout
 npm run dtr -- health
 npm run dtr -- models
+npm run dtr -- opencode-models
 npm run dtr -- usage --cwd /path/to/repository
 npm run dtr -- models refresh
 npm run dtr -- select --role reviewer --complexity difficult --risk high
@@ -52,7 +54,7 @@ command later.
 See [the orchestrator guide](docs/orchestrator.md) and
 [routing guide](docs/routing.md). Model inventory and read-only defaults are
 user-editable in `config/`; no credentials belong there. See [providers](docs/providers.md),
-[free cloud options](docs/free-cloud.md), [privacy](docs/privacy.md), and [cost routing](docs/cost-routing.md) before
+[free cloud options](docs/free-cloud.md), [personal configuration](docs/user-config.md), [privacy](docs/privacy.md), and [cost routing](docs/cost-routing.md) before
 enabling a remote provider.
 
 Use [`dtr start`](docs/prompt-policy.md#two-step-compact-dispatch) before a
@@ -113,6 +115,10 @@ catalogue: Flash Low, Flash Medium, Flash High, then Gemini Pro High. Its
 Claude models remain deep/critical alternatives rather than defaults. DTR
 discovers the models the signed-in account can actually use with `agy models`.
 See [providers](docs/providers.md) for the isolation boundary and setup.
+
+OpenCode is a separate configured-model catalog. DTR can discover it without
+reading credentials, but each model needs an explicit DTR quality/role profile
+before automatic routing can select it. See the [OpenCode guide](docs/opencode.md).
 
 Use `low` only when a cheaper tier remains safe, and `high` when a stronger tier
 is justified by ambiguity or dependency analysis. Those routing labels do not

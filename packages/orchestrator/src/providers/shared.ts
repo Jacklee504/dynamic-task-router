@@ -50,7 +50,23 @@ function parseProviderOutput(provider: WorkerResult["provider"], stdout: string)
   if (provider === "claude") return parseClaudeOutput(stdout);
   if (provider === "codex" || provider === "ollama") return parseCodexEvents(stdout);
   if (provider === "antigravity") return parseAntigravityOutput(stdout);
+  if (provider === "opencode") return parseOpenCodeEvents(stdout);
   return { output: stdout };
+}
+
+function parseOpenCodeEvents(stdout: string): { output: string; usage?: TokenUsage } {
+  const events = stdout.split("\n").map(parseJson).filter(isRecord);
+  if (!events.length) return { output: stdout };
+  const messages = events.flatMap((event) => openCodeText(event));
+  const final = [...events].reverse().map((event) => usageFrom(event.usage ?? event.tokens)).find((usage): usage is TokenUsage => Boolean(usage));
+  return { output: messages.at(-1) ?? stdout, ...(final ? { usage: final } : {}) };
+}
+
+function openCodeText(event: Record<string, unknown>): string[] {
+  const part = isRecord(event.part) ? event.part : undefined;
+  const info = isRecord(event.info) ? event.info : undefined;
+  const candidates = [event.text, event.content, part?.text, part?.content, info?.text, info?.content];
+  return candidates.filter((value): value is string => typeof value === "string" && value.length > 0);
 }
 
 function parseAntigravityOutput(stdout: string): { output: string; usage?: TokenUsage } {

@@ -81,7 +81,7 @@ function fakeProviders(script: Partial<Record<ProviderId, ProviderScript>> = {})
       return { provider: id, model: request.model, requestedEffort: request.effort, effectiveEffort: request.effort, output: spec.output ?? `${id} ok`, success, durationMs: 1, ...(success ? {} : { error: spec.error ?? "worker failed" }) };
     },
   });
-  return { claude: build("claude"), codex: build("codex"), ollama: build("ollama"), openrouter: build("openrouter"), featherless: build("featherless"), antigravity: build("antigravity") };
+  return { claude: build("claude"), codex: build("codex"), ollama: build("ollama"), openrouter: build("openrouter"), featherless: build("featherless"), antigravity: build("antigravity"), opencode: build("opencode") };
 }
 
 describe("application observability", () => {
@@ -96,9 +96,18 @@ describe("application observability", () => {
 });
 
 describe("DtrApplication event flow", () => {
+  it("prepares a compact packet with typed relative paths without invoking a worker", async () => {
+    const { configDir, cwd } = await scaffold();
+    const app = new DtrApplication(configDir, cwd, fakeProviders(), null);
+    const prepared = await app.prepare({ prompt: "Review the parser error path", files: ["src/parser.ts", "test/parser.test.ts"], role: "reviewer", cwd });
+    expect(prepared.files).toEqual(["src/parser.ts", "test/parser.test.ts"]);
+    expect(prepared.packet).toContain("- src/parser.ts");
+    expect(prepared.estimatedInputTokens).toBeGreaterThan(0);
+  });
+
   it("emits run-created, route-selected, worker-started, worker-completed, run-completed for a successful single run", async () => {
     const { configDir, cwd } = await scaffold();
-    const app = new DtrApplication(configDir, cwd, fakeProviders());
+    const app = new DtrApplication(configDir, cwd, fakeProviders(), null);
     const events: DtrEvent[] = [];
     app.onEvent((event) => { events.push(event); });
     const outcome = await app.run({ prompt: "Review the src directory", role: "reviewer", cwd });
@@ -110,7 +119,7 @@ describe("DtrApplication event flow", () => {
 
   it("emits per-worker events for fanout with one runId shared across selections", async () => {
     const { configDir, cwd } = await scaffold();
-    const app = new DtrApplication(configDir, cwd, fakeProviders());
+    const app = new DtrApplication(configDir, cwd, fakeProviders(), null);
     const events: DtrEvent[] = [];
     app.onEvent((event) => { events.push(event); });
     const runs = await app.fanout({ prompt: "Trace the reconnect failure", role: "debugger", profile: { complexity: "difficult", diversity: "medium" }, cwd, families: 2 });
@@ -127,7 +136,7 @@ describe("DtrApplication event flow", () => {
 
   it("emits per-stage events for pipeline using stage ids as worker ids", async () => {
     const { configDir, cwd } = await scaffold();
-    const app = new DtrApplication(configDir, cwd, fakeProviders());
+    const app = new DtrApplication(configDir, cwd, fakeProviders(), null);
     const events: DtrEvent[] = [];
     app.onEvent((event) => { events.push(event); });
     const run = await app.pipeline({ prompt: "Trace the issue", role: "debugger", cwd, template: "debug-review" });
@@ -140,7 +149,7 @@ describe("DtrApplication event flow", () => {
 
   it("emits worker-failed and run-failed when a provider reports a failure", async () => {
     const { configDir, cwd } = await scaffold();
-    const app = new DtrApplication(configDir, cwd, fakeProviders({ claude: { success: false, error: "boom" } }));
+    const app = new DtrApplication(configDir, cwd, fakeProviders({ claude: { success: false, error: "boom" } }), null);
     const events: DtrEvent[] = [];
     app.onEvent((event) => { events.push(event); });
     const outcome = await app.run({ prompt: "Review the src directory", role: "reviewer", cwd });
@@ -154,7 +163,7 @@ describe("DtrApplication event flow", () => {
 describe("DtrApplication abort", () => {
   it("aborts an in-flight run and reports it in the run record + events", async () => {
     const { configDir, cwd } = await scaffold();
-    const app = new DtrApplication(configDir, cwd, fakeProviders({ claude: { delayMs: 5_000 } }));
+    const app = new DtrApplication(configDir, cwd, fakeProviders({ claude: { delayMs: 5_000 } }), null);
     const events: DtrEvent[] = [];
     app.onEvent((event) => { events.push(event); });
     const runPromise = app.run({ prompt: "Review", role: "reviewer", cwd });
@@ -175,7 +184,7 @@ describe("DtrApplication abort", () => {
 
   it("returns unavailable when aborting an unknown run", async () => {
     const { configDir, cwd } = await scaffold();
-    const app = new DtrApplication(configDir, cwd, fakeProviders());
+    const app = new DtrApplication(configDir, cwd, fakeProviders(), null);
     await expect(app.abort("does-not-exist")).resolves.toEqual({ runId: "does-not-exist", accepted: false, state: "unavailable" });
   });
 });
@@ -183,7 +192,7 @@ describe("DtrApplication abort", () => {
 describe("DtrApplication telemetry lookup", () => {
   it("returns null for an unknown run and lists runs after they complete", async () => {
     const { configDir, cwd } = await scaffold();
-    const app = new DtrApplication(configDir, cwd, fakeProviders());
+    const app = new DtrApplication(configDir, cwd, fakeProviders(), null);
     expect(await app.getRun("00000000-0000-0000-0000-000000000000")).toBeNull();
     const first = await app.run({ prompt: "Review one", role: "reviewer", cwd });
     const second = await app.run({ prompt: "Review two", role: "reviewer", cwd });
@@ -191,5 +200,13 @@ describe("DtrApplication telemetry lookup", () => {
     expect(listed.map((record) => record.id).sort()).toEqual([first.runId, second.runId].sort());
     const stored = await app.getRun(first.runId);
     expect(stored?.state).toBe("succeeded");
+  });
+
+  it("stores parent review outcomes as metadata only", async () => {
+    const { configDir, cwd } = await scaffold();
+    const app = new DtrApplication(configDir, cwd, fakeProviders(), null);
+    const run = await app.run({ prompt: "Review one", role: "reviewer", cwd });
+    const stored = await app.outcome(run.runId, { status: "accepted", manualScore: 1 });
+    expect(stored.outcome).toEqual({ status: "accepted", manualScore: 1 });
   });
 });

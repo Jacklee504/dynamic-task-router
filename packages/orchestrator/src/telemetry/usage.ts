@@ -25,7 +25,7 @@ export type ProviderUsageReport = {
 
 export type UsageReport = { scope: "DTR execution telemetry"; providers: ProviderUsageReport[] };
 
-const providerIds: ProviderId[] = ["claude", "codex", "ollama", "openrouter", "featherless", "antigravity"];
+const providerIds: ProviderId[] = ["claude", "codex", "ollama", "openrouter", "featherless", "antigravity", "opencode"];
 
 export async function summarizeUsage(root: string, included: ProviderId[] = providerIds): Promise<UsageReport> {
   const entries = await readLogs(root);

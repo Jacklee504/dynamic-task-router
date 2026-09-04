@@ -3,7 +3,7 @@ import type { CommandContext, CommandResult, Overrides } from "../types.js";
 
 export type TuiCommand = { name: string; aliases?: string[]; description: string; usage: string; execute: (args: string[], context: CommandContext) => Promise<CommandResult> };
 const efforts = new Set<Effort>(["low", "medium", "high", "xhigh", "max"]);
-const providers = new Set<ProviderId>(["claude", "codex", "ollama", "openrouter", "featherless", "antigravity"]);
+const providers = new Set<ProviderId>(["claude", "codex", "ollama", "openrouter", "featherless", "antigravity", "opencode"]);
 
 function roleFor(task: string): WorkerRole {
   if (/\b(review|audit)\b/i.test(task)) return "reviewer";
@@ -29,7 +29,7 @@ export const commandRegistry: TuiCommand[] = [
   { name: "models", aliases: ["m"], description: "Show the configured model registry.", usage: "/models", execute: async () => ({ screen: "models" }) },
   { name: "model", description: "Temporarily select a registry model, or auto.", usage: "/model <id|auto>", execute: async (args, context) => !args[0] ? { message: "Usage: /model <id|auto>" } : override(context, { modelId: args[0] === "auto" ? undefined : args[0] }) },
   { name: "providers", description: "Show provider health and capabilities.", usage: "/providers", execute: async () => ({ screen: "providers" }) },
-  { name: "provider", description: "Temporarily prefer a provider, or auto.", usage: "/provider <provider|auto>", execute: async (args, context) => !args[0] || (args[0] !== "auto" && !providers.has(args[0] as ProviderId)) ? { message: "Usage: /provider <claude|codex|ollama|openrouter|featherless|antigravity|auto>" } : override(context, { provider: args[0] === "auto" ? undefined : args[0] as ProviderId }) },
+  { name: "provider", description: "Temporarily prefer a provider, or auto.", usage: "/provider <provider|auto>", execute: async (args, context) => !args[0] || (args[0] !== "auto" && !providers.has(args[0] as ProviderId)) ? { message: "Usage: /provider <claude|codex|ollama|openrouter|featherless|antigravity|opencode|auto>" } : override(context, { provider: args[0] === "auto" ? undefined : args[0] as ProviderId }) },
   { name: "effort", description: "Temporarily request reasoning effort, or auto.", usage: "/effort <low|medium|high|xhigh|max|auto>", execute: async (args, context) => !args[0] || (args[0] !== "auto" && !efforts.has(args[0] as Effort)) ? { message: "Usage: /effort <low|medium|high|xhigh|max|auto>" } : override(context, { effort: args[0] === "auto" ? undefined : args[0] as Effort }) },
   { name: "mode", description: "Set session strategy, or auto.", usage: "/mode <auto|single|fanout|pipeline>", execute: async (args, context) => !args[0] || !["auto", "single", "fanout", "pipeline"].includes(args[0]) ? { message: "Usage: /mode <auto|single|fanout|pipeline>" } : override(context, { mode: args[0] === "auto" ? undefined : args[0] as Overrides["mode"] }) },
   { name: "usage", description: "Show authoritative usage and unknown quotas.", usage: "/usage", execute: async () => ({ screen: "usage" }) },

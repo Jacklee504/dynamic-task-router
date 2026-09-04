@@ -5,6 +5,7 @@ import { createCodexCommand } from "../src/providers/codex.js";
 import { createOllamaCommand, OllamaProvider } from "../src/providers/ollama.js";
 import { FeatherlessProvider } from "../src/providers/featherless.js";
 import { AntigravityProvider, createAntigravityCommand } from "../src/providers/antigravity.js";
+import { OpenCodeProvider, createOpenCodeCommand, parseOpenCodeModels } from "../src/providers/opencode.js";
 import { OpenRouterProvider } from "../src/providers/openrouter.js";
 import { resolveCodexCommand, resultFromProcess } from "../src/providers/shared.js";
 import type { Command, ProcessResult, ProcessRunner, WorkerRequest } from "../src/types.js";
@@ -60,6 +61,14 @@ describe("provider command construction", () => {
     expect(command.command).toBe("agy");
     expect(command.args).toEqual(expect.arrayContaining(["-p", "--model", "test-model", "--output-format", "json", "--sandbox"]));
     expect(command.args).not.toContain("--effort");
+    expect(command.args.join(" ")).toContain("Read-only advisory task");
+  });
+
+  it("uses OpenCode's configured provider/model catalog without auto approval", () => {
+    const command = createOpenCodeCommand({ ...request, model: "featherless/Qwen/Qwen3-32B" });
+    expect(command.command).toBe("opencode");
+    expect(command.args).toEqual(expect.arrayContaining(["run", "--model", "featherless/Qwen/Qwen3-32B", "--format", "json", "--dir", request.cwd]));
+    expect(command.args).not.toContain("--auto");
     expect(command.args.join(" ")).toContain("Read-only advisory task");
   });
 
@@ -167,5 +176,14 @@ describe("provider health and safety fallback", () => {
       { stdout: "gemini-3.8-flash-medium Gemini 3.8 Flash (Medium)\n", stderr: "", exitCode: 0, timedOut: false },
     ]));
     await expect(provider.availableModels("/workspace/project")).resolves.toEqual(new Set(["gemini-3.8-flash-medium"]));
+  });
+
+  it("discovers only provider/model names exposed by OpenCode", async () => {
+    const provider = new OpenCodeProvider(new FakeRunner([
+      { stdout: "OpenCode 1.18", stderr: "", exitCode: 0, timedOut: false },
+      { stdout: "\u001b[32mfeatherless/Qwen/Qwen3-32B\u001b[0m Qwen\nollama-local/qwen3.5:9b Local\n", stderr: "", exitCode: 0, timedOut: false },
+    ]));
+    await expect(provider.availableModels("/workspace/project")).resolves.toEqual(new Set(["featherless/Qwen/Qwen3-32B", "ollama-local/qwen3.5:9b"]));
+    expect(parseOpenCodeModels("heading\nnot/a model name\n")).toEqual(new Set(["not/a"]));
   });
 });

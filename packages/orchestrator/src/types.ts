@@ -1,4 +1,4 @@
-export type ProviderId = "claude" | "codex" | "ollama" | "openrouter" | "featherless" | "antigravity";
+export type ProviderId = "claude" | "codex" | "ollama" | "openrouter" | "featherless" | "antigravity" | "opencode";
 
 export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
 
@@ -117,6 +117,7 @@ export interface Provider {
 }
 
 export interface WorkerLifecycle {
+  onRouteSelected?: (info: { modelId: string; provider: ProviderId; model: string; effort: Effort }) => void;
   onWorkerStarted?: (info: { workerId: string; provider: ProviderId; model: string; role: WorkerRole; effort: Effort }) => void;
   onWorkerCompleted?: (info: { workerId: string; result: WorkerResult }) => void;
   onWorkerFailed?: (info: { workerId: string; error: string }) => void;

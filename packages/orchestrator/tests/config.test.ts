@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseConfig } from "../src/config.js";
+import { mergeUserConfig, parseConfig } from "../src/config.js";
 
 const models = `
 version: 1
@@ -38,5 +38,22 @@ describe("configuration", () => {
   });
   it("rejects a default effort that is not supported", () => {
     expect(() => parseConfig(models.replace("default_effort: high", "default_effort: low"), policy)).toThrow();
+  });
+  it("applies a strict personal model override without adding credentials", () => {
+    const effective = mergeUserConfig(models, `
+version: 1
+models:
+  overrides:
+    - id: codex-test
+      enabled: false
+      tier: fast
+      roles: { reviewer: 6 }
+`);
+    const parsed = parseConfig(effective, policy);
+    expect(parsed.models[0]).toMatchObject({ enabled: false, tier: "fast", roles: { reviewer: 6 } });
+  });
+  it("rejects unknown personal model overrides and credential-shaped fields", () => {
+    expect(() => mergeUserConfig(models, "version: 1\nmodels:\n  overrides:\n    - id: absent\n      enabled: false")).toThrow("unknown model");
+    expect(() => mergeUserConfig(models, "version: 1\nmodels:\n  token: forbidden")).toThrow();
   });
 });

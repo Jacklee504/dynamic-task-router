@@ -20,7 +20,7 @@ export const DISPATCH_CONTRACT = [
   "5. Result is capped to a concise STATUS, PATHS, CHECK, and RISK handoff.",
 ].join("\n");
 
-type ProviderScoped<T> = { claude?: T | undefined; codex?: T | undefined; ollama?: T | undefined; openrouter?: T | undefined; featherless?: T | undefined; antigravity?: T | undefined };
+type ProviderScoped<T> = { claude?: T | undefined; codex?: T | undefined; ollama?: T | undefined; openrouter?: T | undefined; featherless?: T | undefined; antigravity?: T | undefined; opencode?: T | undefined };
 
 export type PromptPolicy = {
   charsPerToken: number;

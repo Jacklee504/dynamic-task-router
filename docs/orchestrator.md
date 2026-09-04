@@ -50,6 +50,23 @@ directory; the target repository is not modified by DTR itself.
 
 ## Configuration
 
+Personal enablement and model-profile changes belong in the key-free
+[personal configuration overlay](user-config.md), not in a target repository.
+
+## Readiness and fallback
+
+`dtr doctor --verbose` is the full no-inference diagnostic: use it after a
+login, installation, subscription change, or provider configuration change.
+Each routed task then performs a lightweight preflight only for the selected
+provider/model. Successful checks are cached for two minutes in DTR's
+operating-system temporary state; failed checks are never cached.
+
+If an automatically selected model fails preflight, DTR tries the next eligible
+configured model and records `selected-model preflight failed` plus
+`fallbackFrom` in the route metadata. An explicitly pinned model never silently
+falls back. DTR does not send automatic “reply yes” probes because those consume
+quota and may wake local inference.
+
 Edit `config/models.yaml` to declare enabled models, model families, quality
 tiers, role-score priors, capabilities, and supported effort values. Edit
 `config/routing-policy.yaml` for effort, diversity, timeout, and safety policy.

@@ -19,7 +19,7 @@ describe("usage telemetry", () => {
     await writeRunLog(root, request, result);
     const report = await summarizeUsage(root);
     expect(report.scope).toBe("DTR execution telemetry");
-    expect(report.providers.map((item) => item.provider)).toEqual(["claude", "codex", "ollama", "openrouter", "featherless", "antigravity"]);
+    expect(report.providers.map((item) => item.provider)).toEqual(["claude", "codex", "ollama", "openrouter", "featherless", "antigravity", "opencode"]);
     expect(report.providers.find((item) => item.provider === "codex")).toMatchObject({ executions: 1, succeeded: 1, tokens: { reportingExecutions: 1, totalTokens: 20 } });
     expect(report.providers.find((item) => item.provider === "claude")).toMatchObject({ executions: 0, accountQuota: { status: "not-exposed" } });
   });

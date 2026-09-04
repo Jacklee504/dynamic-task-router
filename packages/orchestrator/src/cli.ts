@@ -1,18 +1,20 @@
 #!/usr/bin/env node
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, resolve } from "node:path";
-import { realpathSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 
-import { findModel, loadConfig, repositoryRootFromConfig } from "./config.js";
+import { findModel, loadConfig, repositoryRootFromConfig, userConfigPath } from "./config.js";
 import { DISPATCH_CONTRACT, buildCompactTaskPacket, compactTaskPrompt } from "./contracts.js";
 import { NodeProcessRunner } from "./process.js";
 import { createProviders } from "./providers/index.js";
 import { OllamaProvider } from "./providers/ollama.js";
+import { OpenCodeProvider } from "./providers/opencode.js";
 import { readOpenRouterCatalog, refreshOpenRouterCatalog } from "./providers/openrouter.js";
 import { classifyTask, diversityFromFamilies } from "./routing/classifier.js";
 import { selectEffort } from "./routing/effort.js";
 import { explainSelection } from "./routing/explain.js";
 import { modelAvailability } from "./routing/runtime.js";
+import { preflightModel } from "./readiness.js";
 import { estimateCost, selectModel } from "./routing/selector.js";
 import { stateDirectoryFor } from "./state.js";
 import { runFanout } from "./strategies/fanout.js";
@@ -47,11 +49,13 @@ export async function main(argv: string[]): Promise<number> {
       return 0;
     }
     if (command === "start") { console.log(DISPATCH_CONTRACT); return 0; }
-    const config = await loadConfig(configDir);
+    if (command === "config") return reportConfig(configDir);
+    const config = await loadConfig(configDir, userConfigPath());
     const providers = createProviders(new NodeProcessRunner());
     if (command === "health") return await reportHealth(config.models, providers);
     if (command === "doctor") return await doctor(config.models, flags);
     if (command === "models") return await (flags.refresh ? refreshModels(configDir) : reportModels(config, providers));
+    if (command === "opencode-models") return await reportOpenCodeModels(providers, cwdFrom(flags));
     if (command === "run") return await runExplicit(configDir, flags, config, providers);
     if (command === "select") return await selectOnly(flags, config, providers);
     if (command === "route") return await route(configDir, flags, config, providers);
@@ -87,6 +91,7 @@ async function doctor(models: Awaited<ReturnType<typeof loadConfig>>["models"], 
       openrouter: report.providers.openrouter.ready ? "ready" : "disabled",
       featherless: report.providers.featherless.ready ? "ready" : "unavailable",
       antigravity: report.providers.antigravity.ready ? "ready" : "unavailable",
+      opencode: report.providers.opencode.ready ? "ready" : "unavailable",
     },
     hint: report.ready ? "Run `dtr doctor --verbose` for per-check detail." : "Run `dtr doctor --verbose` to identify the unavailable prerequisite.",
   }, null, 2));
@@ -96,6 +101,22 @@ async function doctor(models: Awaited<ReturnType<typeof loadConfig>>["models"], 
 async function reportModels(config: Awaited<ReturnType<typeof loadConfig>>, providers: ReturnType<typeof createProviders>): Promise<number> {
   const availability = await modelAvailability(config, providers);
   for (const model of config.models) console.log(`${model.id}\t${model.provider}\t${model.family}\t${model.model}\t${model.tier}\t${model.enabled ? "enabled" : "disabled"}\t${availability[model.id] ? "available" : "unavailable"}`);
+  return 0;
+}
+
+function reportConfig(configDir: string): number {
+  const personal = userConfigPath();
+  console.log(JSON.stringify({ baseConfigDir: configDir, personalConfig: personal, personalConfigLoaded: existsSync(personal), credentials: "not supported in personal config" }, null, 2));
+  return 0;
+}
+
+/** Lists OpenCode's configured catalog identifiers; these are not automatically routing profiles. */
+async function reportOpenCodeModels(providers: ReturnType<typeof createProviders>, cwd: string): Promise<number> {
+  const provider = providers.opencode;
+  if (!(provider instanceof OpenCodeProvider)) throw new Error("OpenCode provider is not implemented");
+  const models = await provider.availableModels(cwd);
+  if (!models) throw new Error("OpenCode is unavailable or its configured model catalog could not be read. Run `opencode models` in this Terminal for detail.");
+  for (const model of [...models].sort()) console.log(model);
   return 0;
 }
 
@@ -120,7 +141,7 @@ async function runExplicit(configDir: string, flags: Flags, config: Awaited<Retu
   const model = findModel(config, modelIdentifier);
   if (!model) throw new Error(`Configured, enabled model not found: ${modelIdentifier}`);
   if (model.provider !== providerId) throw new Error(`Model '${model.id}' belongs to '${model.provider}', not '${providerId}'`);
-  if (!await modelAvailability(config, providers).then((availability) => availability[model.id])) throw new Error(`Model '${model.id}' is not available in the current runtime or signed-in account`);
+  if (!(await preflightModel(model, providers, cwd)).ready) throw new Error(`Model '${model.id}' is not available in the current runtime or signed-in account`);
   if (model.roles[role] === 0) throw new Error(`Role '${role}' is not allowed for '${model.id}'`);
   const profile = profileFrom(flags, task);
   if ((profile.requireLocal || profile.allowRemote === false || profile.privacySensitive) && !model.local) throw new Error(`Model '${model.id}' is remote but this task requires local execution`);
@@ -179,7 +200,7 @@ function profileFrom(flags: Flags, prompt: string, families?: number, providedRo
   const contextRequirement = optionalEnumFlag(flags, "context", contexts);
   return classifyTask(prompt, providedRole ?? enumFlag(flags, "role", roles), {
     ...(complexity ? { complexity } : {}), ...(risk ? { risk } : {}), ...(diversity ? { diversity } : {}), ...(contextRequirement ? { contextRequirement } : {}),
-    preferLocal: boolFlag(flags, "prefer-local"), requireLocal: boolFlag(flags, "local-only"), privacySensitive: boolFlag(flags, "privacy-sensitive"), privateCode: boolFlag(flags, "private-code"), allowRemote: !boolFlag(flags, "no-remote"), ...(flags.provider !== undefined ? { allowedProviders: [enumFlag(flags, "provider", ["claude", "codex", "ollama", "openrouter", "featherless", "antigravity"] as const)] } : {}), requiresTools: boolFlag(flags, "requires-tools"),
+    preferLocal: boolFlag(flags, "prefer-local"), requireLocal: boolFlag(flags, "local-only"), privacySensitive: boolFlag(flags, "privacy-sensitive"), privateCode: boolFlag(flags, "private-code"), allowRemote: !boolFlag(flags, "no-remote"), ...(flags.provider !== undefined ? { allowedProviders: [enumFlag(flags, "provider", ["claude", "codex", "ollama", "openrouter", "featherless", "antigravity", "opencode"] as const)] } : {}), requiresTools: boolFlag(flags, "requires-tools"),
   });
 }
 function routeRole(flags: Flags, task: string): WorkerRole {
@@ -199,6 +220,6 @@ function optionalEnumFlag<T extends string>(flags: Flags, name: string, values: 
 function parseFlags(args: string[]): Flags { const flags: Flags = {}; for (let index = 0; index < args.length; index += 1) { const arg = args[index]; if (!arg?.startsWith("--")) throw new Error(`Unexpected argument: ${arg ?? ""}`); const key = arg.slice(2); const value = args[index + 1]; if (!value || value.startsWith("--")) { flags[key] = true; continue; } flags[key] = value; index += 1; } return flags; }
 function requiredFlag(flags: Flags, name: string): string { const value = flags[name]; if (typeof value !== "string" || value.length === 0) throw new Error(`--${name} is required`); return value; }
 function printResult(output: string, error: string | undefined, logPath: string, showLog = false): void { if (output) process.stdout.write(output.endsWith("\n") ? output : `${output}\n`); if (error) console.error(`dtr: ${error}`); if (showLog) console.error(`dtr: run log ${logPath}`); }
-function printUsage(): void { console.error("Usage: dtr <start|tui|health|doctor|models|run|select|route|fanout|pipeline|status|evaluate|stats|usage|outcome> [options]"); console.error("Start: dtr start  (print the compact dispatch contract; no model call)"); console.error("Route: dtr route --task <100-word task> [--files path1,path2] [--role <role>] [--provider <provider>] [profile flags]"); console.error("Run: dtr run --allow-raw-prompt --provider <provider> --model <model> --role <role> --prompt <text> (expert override)"); console.error("Context: raw run, fanout, and pipeline accept --include-files path1,path2 (explicit files below --cwd only)"); console.error("Doctor: dtr doctor [--verbose] [--cwd <target-repository>]"); console.error("TUI: dtr tui [--cwd <target-repository>]"); console.error("Select: dtr select --role <role> [--prompt <text>] [--complexity <level>] [--risk <level>] [--diversity <level>] [--provider <provider>]"); console.error("Fanout: dtr fanout --families <n> --role <role> --prompt <text> [profile flags]"); console.error("Pipeline: dtr pipeline --template <name> --role <role> --prompt <text> [--write --scope path1,path2]"); console.error("Usage: dtr usage [--cwd <repo>] (DTR execution telemetry; not account quota)"); console.error("Status: dtr status --run-id <uuid> [--cwd <repo>]"); }
+function printUsage(): void { console.error("Usage: dtr <start|tui|health|doctor|config|models|opencode-models|run|select|route|fanout|pipeline|status|evaluate|stats|usage|outcome> [options]"); console.error("Start: dtr start  (print the compact dispatch contract; no model call)"); console.error("Route: dtr route --task <100-word task> [--files path1,path2] [--role <role>] [--provider <provider>] [profile flags]"); console.error("Run: dtr run --allow-raw-prompt --provider <provider> --model <model> --role <role> --prompt <text> (expert override)"); console.error("Context: raw run, fanout, and pipeline accept --include-files path1,path2 (explicit files below --cwd only)"); console.error("Doctor: dtr doctor [--verbose] [--cwd <target-repository>]"); console.error("Config: dtr config (show the non-secret personal overlay path)"); console.error("TUI: dtr tui [--cwd <target-repository>]"); console.error("Models: dtr models; dtr opencode-models (OpenCode's unprofiled configured catalog)"); console.error("Select: dtr select --role <role> [--prompt <text>] [--complexity <level>] [--risk <level>] [--diversity <level>] [--provider <provider>]"); console.error("Fanout: dtr fanout --families <n> --role <role> --prompt <text> [profile flags]"); console.error("Pipeline: dtr pipeline --template <name> --role <role> --prompt <text> [--write --scope path1,path2]"); console.error("Usage: dtr usage [--cwd <repo>] (DTR execution telemetry; not account quota)"); console.error("Status: dtr status --run-id <uuid> [--cwd <repo>]"); }
 function isMainModule(): boolean { try { return Boolean(process.argv[1]) && import.meta.url === pathToFileURL(realpathSync(process.argv[1]!)).href; } catch { return false; } }
 if (isMainModule()) main(process.argv.slice(2)).then((code) => { process.exitCode = code; });

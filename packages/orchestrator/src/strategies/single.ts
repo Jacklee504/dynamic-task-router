@@ -1,6 +1,7 @@
 import type { RouterConfig } from "../config.js";
 import { compactTaskPrompt } from "../contracts.js";
-import { configuredModel, modelAvailability } from "../routing/runtime.js";
+import { configuredModel } from "../routing/runtime.js";
+import { preflightModel } from "../readiness.js";
 import { selectEffort } from "../routing/effort.js";
 import { selectModel } from "../routing/selector.js";
 import { requiredFamilies } from "../routing/diversity.js";
@@ -22,12 +23,24 @@ export async function runSingle(
   if (requiredFamilies(config, profile.diversity) > 1) {
     throw new Error("This task requires independent model families; use dtr fanout rather than dtr route");
   }
-  const availability = await modelAvailability(config, providers);
   const selectionOptions = { requireWrite: Boolean(options.writeBoundary), ...(options.modelId ? { modelId: options.modelId } : {}) };
   const preferred = selectModel(config, profile, {}, options.excludedFamilies, selectionOptions);
-  const selection = selectModel(config, profile, availability, options.excludedFamilies, selectionOptions);
-  if (!selection) throw new Error("No eligible model: constraints cannot be safely satisfied");
-  const model = configuredModel(config, selection.model);
+  const failedPreflights = new Set<string>();
+  let selection = selectModel(config, profile, {}, options.excludedFamilies, selectionOptions);
+  let model: ReturnType<typeof configuredModel> | undefined;
+  let preflightReason: string | undefined;
+  while (selection) {
+    const candidate = configuredModel(config, selection.model);
+    const preflight = await preflightModel(candidate, providers, cwd);
+    if (preflight.ready) { model = candidate; break; }
+    preflightReason = preflight.reason;
+    // Explicit model selection is an intentional pin, never a silent fallback.
+    if (options.modelId) break;
+    failedPreflights.add(candidate.id);
+    selection = selectModel(config, profile, {}, options.excludedFamilies, { ...selectionOptions, excludedModels: failedPreflights });
+  }
+  if (!selection || !model) throw new Error(`No eligible live model: ${preflightReason ?? "constraints cannot be safely satisfied"}`);
+  if (options.signal?.aborted) throw new DOMException("aborted", "AbortError");
   const baselineEffort = selectEffort(config, model, profile);
   const effort = options.effort ? { requested: options.effort, effective: model.efforts.includes(options.effort) ? options.effort : baselineEffort.effective } : baselineEffort;
   const request: WorkerRequest = {
@@ -43,6 +56,7 @@ export async function runSingle(
   };
   const provider = providers[model.provider];
   if (!provider) throw new Error(`Provider '${model.provider}' is not implemented`);
+  options.lifecycle?.onRouteSelected?.({ modelId: model.id, provider: model.provider, model: model.model, effort: effort.effective });
   const workerId = options.workerId ?? model.id;
   options.lifecycle?.onWorkerStarted?.({ workerId, provider: model.provider, model: model.model, role: profile.role, effort: effort.effective });
   const result = await provider.run(request);
@@ -51,7 +65,12 @@ export async function runSingle(
   const routing: RoutingMetadata = {
     profile,
     selectedModel: model.id,
-    selection: selection.explanation,
+    selection: {
+      ...selection.explanation,
+      rejected: failedPreflights.size
+        ? { ...selection.explanation.rejected, ...Object.fromEntries([...failedPreflights].map((id) => [id, ["selected-model preflight failed"]])) }
+        : selection.explanation.rejected,
+    },
     requestedEffort: effort.requested,
     effectiveEffort: effort.effective,
     ...(preferred && preferred.model !== model.id ? { fallbackFrom: preferred.model } : {}),

@@ -2,6 +2,7 @@ import type { ModelConfig, RouterConfig } from "../config.js";
 import type { Provider } from "../types.js";
 import { OllamaProvider } from "../providers/ollama.js";
 import { AntigravityProvider } from "../providers/antigravity.js";
+import { OpenCodeProvider } from "../providers/opencode.js";
 import type { Availability } from "./selector.js";
 
 export async function modelAvailability(
@@ -9,7 +10,8 @@ export async function modelAvailability(
   providers: Record<string, Provider>,
 ): Promise<Availability> {
   const antigravity = providers.antigravity instanceof AntigravityProvider ? await providers.antigravity.availableModels(process.cwd()) : undefined;
-  const providerHealth = await Promise.all(Object.entries(providers).map(async ([id, provider]) => [id, id === "antigravity" ? Boolean(antigravity) : await provider.health()] as const));
+  const opencode = providers.opencode instanceof OpenCodeProvider ? await providers.opencode.availableModels(process.cwd()) : undefined;
+  const providerHealth = await Promise.all(Object.entries(providers).map(async ([id, provider]) => [id, id === "antigravity" ? Boolean(antigravity) : id === "opencode" ? Boolean(opencode) : await provider.health()] as const));
   const health = Object.fromEntries(providerHealth);
   const availability: Availability = {};
   for (const model of config.models) {
@@ -20,6 +22,9 @@ export async function modelAvailability(
     }
     if (model.provider === "antigravity" && availability[model.id]) {
       availability[model.id] = Boolean(antigravity?.has(model.model));
+    }
+    if (model.provider === "opencode" && availability[model.id]) {
+      availability[model.id] = Boolean(opencode?.has(model.model));
     }
   }
   return availability;

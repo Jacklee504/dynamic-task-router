@@ -1,5 +1,6 @@
 import type { ModelConfig } from "./config.js";
 import { antigravityCommandCandidates } from "./providers/antigravity.js";
+import { openCodeCommandCandidates } from "./providers/opencode.js";
 import { codexCommandCandidates } from "./providers/shared.js";
 import type { ProcessRunner } from "./types.js";
 
@@ -13,6 +14,7 @@ export type DoctorReport = {
     openrouter: { ready: boolean; credentialConfigured: boolean };
     featherless: { ready: boolean; credentialConfigured: boolean };
     antigravity: { ready: boolean; candidates: Check[] };
+    opencode: { ready: boolean; candidates: Check[] };
   };
 };
 
@@ -26,15 +28,33 @@ export async function diagnoseProviders(
   openRouterCredentialConfigured = Boolean(process.env.OPENROUTER_API_KEY),
   featherlessCredentialConfigured = Boolean(process.env.FEATHERLESS_API_KEY),
 ): Promise<DoctorReport> {
-  const [codex, claude, ollama, antigravity] = await Promise.all([
+  const [codex, claude, ollama, antigravity, opencode] = await Promise.all([
     diagnoseCodex(runner, cwd),
     diagnoseClaude(runner, cwd),
     diagnoseOllama(runner, cwd, models),
     diagnoseAntigravity(runner, cwd),
+    diagnoseOpenCode(runner, cwd),
   ]);
   const openrouter = { ready: openRouterCredentialConfigured, credentialConfigured: openRouterCredentialConfigured };
   const featherless = { ready: featherlessCredentialConfigured, credentialConfigured: featherlessCredentialConfigured };
-  return { ready: codex.ready || (claude.installed && claude.authenticated === true && claude.safe === true) || ollama.ready || openrouter.ready || featherless.ready || antigravity.ready, providers: { codex, claude, ollama, openrouter, featherless, antigravity } };
+  return { ready: codex.ready || (claude.installed && claude.authenticated === true && claude.safe === true) || ollama.ready || openrouter.ready || featherless.ready || antigravity.ready || opencode.ready, providers: { codex, claude, ollama, openrouter, featherless, antigravity, opencode } };
+}
+
+/** `opencode models` exposes the configured catalogue without printing auth. */
+async function diagnoseOpenCode(runner: ProcessRunner, cwd: string): Promise<{ ready: boolean; candidates: Check[] }> {
+  const candidates = await Promise.all(openCodeCommandCandidates().map(async (command) => {
+    const version = await checkCommand(runner, command, cwd);
+    if (!version.installed) return version;
+    const [help, models] = await Promise.all([
+      runner.run({ command, args: ["run", "--help"] }, { cwd, timeoutMs }),
+      runner.run({ command, args: ["models"] }, { cwd, timeoutMs: 10_000 }),
+    ]);
+    const required = ["--model", "--format", "--dir"];
+    const missingFlags = required.filter((flag) => !help.stdout.includes(flag));
+    const authenticated = models.exitCode === 0 && models.stdout.split("\n").some((line) => /^\s*[^\s/]+\/[^\s]+/.test(line));
+    return { ...version, authenticated, safe: help.exitCode === 0 && missingFlags.length === 0, ...(missingFlags.length ? { missingFlags } : {}) };
+  }));
+  return { ready: candidates.some((candidate) => candidate.installed && candidate.authenticated && candidate.safe), candidates };
 }
 
 async function diagnoseAntigravity(runner: ProcessRunner, cwd: string): Promise<{ ready: boolean; candidates: Check[] }> {

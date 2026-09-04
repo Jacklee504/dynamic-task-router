@@ -18,6 +18,13 @@ eligible and each receives the same compact prompt only. The caller receives
 separate results and performs any comparison.
 
 `dtr route` refuses a multi-family requirement: use `dtr fanout` instead.
+
+Before dispatch, a route validates only its selected model's local command,
+auth/catalogue visibility, and model availability. The adapter then validates
+its required execution flags before it sends the task. DTR does not perform a
+paid inference probe. A successful availability check is temporarily cached
+outside the target repository; a failure is immediately eligible for a
+documented automatic fallback unless the caller pinned a model.
 Codex and Claude routes have verified read-only modes; API routes cannot write
 the checkout. Antigravity is an advisory exception: it is sandboxed but its CLI
 does not offer DTR a verified read-only switch, so use a trusted checkout or an

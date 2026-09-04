@@ -114,10 +114,10 @@ describe("routing policy", () => {
   });
 });
 
-function fakeProvider(id: "claude" | "codex", calls: WorkerRequest[]): Provider {
+function fakeProvider(id: "claude" | "codex", calls: WorkerRequest[], available = true): Provider {
   return {
     id,
-    health: async () => true,
+    health: async () => available,
     run: async (request) => {
       calls.push(request);
       return { provider: id, model: request.model, requestedEffort: request.effort, effectiveEffort: request.effort, output: `${id} result`, success: true, durationMs: 1 };
@@ -134,6 +134,16 @@ describe("execution strategies", () => {
     expect(run.routing.requestedEffort).toBe("medium");
     expect(calls[0]?.readOnly).toBe(true);
     expect(calls[0]?.prompt).toContain("Follow applicable CLAUDE.md instructions before starting.");
+  });
+  it("preflights the chosen model and transparently falls back when it is unavailable", async () => {
+    const calls: WorkerRequest[] = [];
+    const providers = { claude: fakeProvider("claude", calls, false), codex: fakeProvider("codex", calls) };
+    const cwd = `/tmp/dtr-routing-preflight-${Date.now()}`;
+    const run = await runSingle("/tmp/dtr-routing-test/config", config, providers, "Review this", cwd, profile());
+    expect(run.routing.selectedModel).toBe("codex-build");
+    expect(run.routing.fallbackFrom).toBe("claude-review");
+    expect(run.routing.selection.rejected["claude-review"]).toContain("selected-model preflight failed");
+    expect(calls.map((call) => call.model)).toEqual(["build"]);
   });
   it("fans out to independent families without passing sibling outputs", async () => {
     const calls: WorkerRequest[] = [];

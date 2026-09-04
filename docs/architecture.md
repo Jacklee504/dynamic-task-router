@@ -21,6 +21,7 @@ TUI / CLI / Codex / Claude Code / MCP client
        ├── Codex adapter
        ├── local Ollama adapter
        ├── Antigravity CLI adapter (account-backed, optional)
+       ├── OpenCode CLI adapter (configured-provider bridge, optional)
        ├── OpenRouter adapter (optional, disabled by default)
        └── Featherless adapter (optional process credential)
 ```

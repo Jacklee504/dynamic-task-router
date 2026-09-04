@@ -1,8 +1,8 @@
 # Providers
 
-The runtime has six adapters: authenticated local `codex` and `claude` CLIs,
+The runtime has seven adapters: authenticated local `codex` and `claude` CLIs,
 the account-backed Google Antigravity (`agy`) CLI, local Ollama through Codex
-OSS mode, optional OpenRouter, and hosted Featherless. The CLI adapters use
+OSS mode, OpenCode's configured model catalog, optional OpenRouter, and hosted Featherless. The CLI adapters use
 their host's existing login. Ollama never downloads a model. OpenRouter and
 Featherless support text-only advisory tasks.
 
@@ -99,3 +99,30 @@ See [privacy](privacy.md) and [adding a provider](adding-a-provider.md).
 Optional provider-specific instructions and their input-token budget are
 configured through the [prompt policy](prompt-policy.md). They are bounded,
 validated before dispatch, and never stored in DTR run records.
+
+## OpenCode-configured providers
+
+OpenCode is the bridge for providers you have already configured there, such
+as Featherless or a custom OpenAI-compatible endpoint. DTR invokes the local
+`opencode` CLI; it does not read OpenCode's configuration, auth storage, or
+any `.env` file, and it never copies API keys.
+
+```sh
+opencode models
+dtr opencode-models
+dtr doctor --verbose
+```
+
+`dtr opencode-models` reports catalog identifiers in the exact
+`provider/model` form that OpenCode accepts. Discovery alone cannot determine
+quality, role suitability, privacy, or cost, so it intentionally does not
+auto-add every OpenCode model to DTR routing. Add a reviewed profile for each
+model you want DTR to select, using the personal-config workflow in the
+[OpenCode guide](opencode.md).
+
+DTR runs OpenCode with `opencode run --model … --format json` and never passes
+`--auto`, attaches files, or resumes a shared session. Current OpenCode CLI
+versions do not give DTR a verified read-only permission flag. OpenCode models
+are therefore advisory-only (`write_safe: false`) and not approved for private
+code by default. Use a trusted checkout or isolated worktree; do not treat the
+prompt instruction as a hard filesystem boundary.
