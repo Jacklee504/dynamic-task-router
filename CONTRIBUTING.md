@@ -21,6 +21,8 @@ Contributions must preserve these guarantees:
    Qwen task targets may use `fast`, inherited models, or user-configured model
    grades, but do not hard-code credentials or a provider-specific model ID in
    the extension.
+   The sequential Ollama fallback must retain explicit exclusivity, advisory
+   output only, and model unloading by default.
 4. Run the relevant validator listed in [docs/RELEASING.md](docs/RELEASING.md).
 5. Include validation evidence in the pull request.
 

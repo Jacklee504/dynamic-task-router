@@ -1,16 +1,19 @@
 # Model selection runtime
 
 `config/models.yaml` is the runtime registry. Each model declares its provider,
-independent model family, local status, 0–10 role scores, supported internal
-reasoning efforts, capabilities, context limit, cost estimate, and privacy
-eligibility. The initial values are maintainers' priors for routing; they are
-deliberately not presented as benchmark results.
+independent model family, quality tier (`fast`, `standard`, `deep`, or
+`critical`), local status, 0–10 role scores, supported internal reasoning
+efforts, capabilities, context limit, cost estimate, and privacy eligibility.
+The initial values are maintainers' priors for routing; they are deliberately
+not presented as benchmark results.
 
 The selector follows this order:
 
 1. Build a deterministic task profile.
 2. Reject models that cannot meet hard constraints.
-3. Score by the requested role, plus documented local/high-risk/extreme bonuses.
+3. Choose the smallest tier meeting the task's complexity/risk floor, then use
+   role score and documented bonuses to break ties. If no eligible model meets
+   that floor, report the tier downgrade in the selection reason.
 4. Choose effort independently from complexity and risk.
 5. Store selection and requested/effective effort metadata without prompts or outputs.
 
@@ -30,3 +33,8 @@ An unavailable first choice falls back only to an eligible model. A local-only
 or privacy-sensitive task with no installed local candidate fails. An effort
 mapping such as requested `low` to supported `medium` is explicit in the
 output and run metadata.
+
+The Antigravity model slugs already contain native thinking variants, such as
+`gemini-3.8-flash-medium`. DTR does not equate its own effective effort with
+that suffix or pass it to `agy`; the tier chooses the variant and the effort is
+kept as DTR routing metadata.

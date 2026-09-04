@@ -5,7 +5,8 @@ decomposition, integration, and final verification.
 
 ```sh
 npm run dtr -- select --role reviewer --complexity difficult --risk high
-npm run dtr -- route --role debugger --prompt "Find why valid signals never reach order submission"
+npm run dtr -- start
+npm run dtr -- route --task "Find why valid signals never reach order submission; identify the failing handoff and check its focused test." --files "src/signals.ts,src/orders.ts,test/orders.test.ts"
 npm run dtr -- fanout --families 2 --role debugger --risk high --prompt "Find why valid signals never reach order submission"
 ```
 
@@ -16,16 +17,19 @@ fan-out for two independent model families; providers run concurrently when
 eligible and each receives the same compact prompt only. The caller receives
 separate results and performs any comparison.
 
-`dtr route` refuses a multi-family requirement: use `dtr fanout` instead. All
-commands that invoke providers use the Phase 1 read-only adapters and write a
-metadata-only record under `.dtr/runs/`.
+`dtr route` refuses a multi-family requirement: use `dtr fanout` instead.
+Codex and Claude routes have verified read-only modes; API routes cannot write
+the checkout. Antigravity is an advisory exception: it is sandboxed but its CLI
+does not offer DTR a verified read-only switch, so use a trusted checkout or an
+isolated worktree. All commands write only optional metadata under DTR's
+private temporary state directory.
 
 Private-code, local-only, provider, and family restrictions are hard filters:
 the selector fails rather than relaxing them. Cost preference is applied only
 after those constraints. See [privacy](privacy.md) and [cost routing](cost-routing.md).
 
-The runtime refuses task packets over 6,000 characters, adds a compact result
-contract, caps returned provider output at 4,800 characters, and MCP further
-limits returned task result text to 1,200 characters. Reduce a task to its
-goal, paths/symbols, necessary evidence, non-goals, and check rather than
-sending a transcript.
+Normal `dtr route` dispatches reject task text over 100 words or 1,000
+characters, accept at most eight relative file paths, and never attach file
+content. The concise returned handoff is capped at 1,200 characters. Use
+`dtr run --allow-raw-prompt` only when deliberately bypassing that normal
+contract for an explicit provider/model invocation.

@@ -1,0 +1,9 @@
+id: tool-assisted-research
+role: researcher
+complexity: normal
+risk: low
+requires_tools: true
+expect:
+  minimum_effort: medium
+  tools: true
+  read_only: true

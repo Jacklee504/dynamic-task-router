@@ -15,6 +15,11 @@ and fallback. Qwen Code's grade selection is not a per-subagent reasoning-effort
 control. Create subagents only for independent scopes whose benefit exceeds
 dispatch and handoff overhead; one writer owns each shared contract.
 
+If the user specifically asks to invoke the installed executable DTR CLI, first
+run `dtr start`. Build one compact task from that contract and call `dtr route
+--task "…" --files "path1,path2"`. Do not pass routing rationale, source, logs,
+or transcripts; use `dtr run` only for a deliberate explicit-model override.
+
 Use Qwen Code's adjusted model grade at dispatch: `fast` for fast triage or
 routine review; a configured `standard` or `deep` grade for isolated or core
 work; and a configured `critical` grade or strong inherited parent model for

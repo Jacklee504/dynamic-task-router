@@ -1,6 +1,6 @@
 # Model routing policy
 
-The Dynamic Task Router selects the least expensive permitted model tier that
+The Dynamic Task Router selects the smallest permitted model tier that
 can safely satisfy a routed task. Cost is never the first rule: safety,
 required repository or tool access, and the need for independent review take
 precedence.
@@ -48,8 +48,8 @@ constrained rather than silently changing it.
 3. Route a task only when its host can provide the required model tier and
    tool/isolation boundary.
 4. Do not silently downgrade when the selected tier is unavailable. Report the
-   unavailable target and use a user-approved fallback or keep the task with
-   the parent.
+   unavailable target and its selected lower-tier fallback, or keep the task
+   with the parent when no eligible fallback exists.
 5. External providers are eligible only after the user enables them. They do
    not receive secret-bearing, production, destructive, or broad repository
    tasks by default.
@@ -78,12 +78,12 @@ may move down if that remains safe.
 
 ## Host mappings
 
-| Tier | Codex desktop | Claude Code | Qwen Code |
-| --- | --- | --- | --- |
-| Fast | Luna / effort by role | Haiku / effort by role | `fast` or configured `small` grade |
-| Standard | Terra / effort by role | Sonnet / effort by role | configured `standard` grade, otherwise inherited parent model |
-| Deep | Terra / normally high effort | Sonnet / normally high effort | configured `deep` grade, otherwise inherited parent model |
-| Critical | Sol / normally high effort | Opus / normally high effort | configured `critical` grade, otherwise a deliberately strong parent model |
+| Tier | Codex desktop | Claude Code | Qwen Code | Antigravity CLI |
+| --- | --- | --- | --- | --- |
+| Fast | Luna / effort by role | Haiku / effort by role | `fast` or configured `small` grade | Gemini Flash Low |
+| Standard | Terra / effort by role | Sonnet / effort by role | configured `standard` grade, otherwise inherited parent model | Gemini Flash Medium |
+| Deep | Terra / normally high effort | Sonnet / normally high effort | configured `deep` grade, otherwise inherited parent model | Gemini Flash High; Sonnet as an independent-family option |
+| Critical | Sol / normally high effort | Opus / normally high effort | configured `critical` grade, otherwise a deliberately strong parent model | Gemini Pro High; Opus as an independent-family option |
 
 Codex selects model and effort independently for the selected tier. Claude Code
 selects the adjusted model per invocation; its thinking configuration remains
@@ -91,6 +91,10 @@ inherited from the parent session, so configure that session deliberately for
 the role. Qwen Code does not expose a matching per-subagent reasoning-effort
 field in agent frontmatter, so its adapter applies the routing level by
 selecting the adjusted model grade.
+
+Antigravity slugs already include their native thought level. DTR invokes the
+selected slug directly and does not append its own effort flag. It only uses
+models returned by `agy models` for the currently signed-in account.
 
 ## Decision record
 

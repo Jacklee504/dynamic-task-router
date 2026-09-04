@@ -12,6 +12,12 @@ lower/raise from the baseline; never lower a safety minimum. Create
 subagents only for independent scopes whose benefit exceeds dispatch and
 handoff overhead; one writer owns each shared contract.
 
+When the user specifically asks to use the installed executable DTR CLI, first
+run `dtr start` and follow its compact contract. Then use `dtr route --task
+"…" --files "path1,path2"`; do not use `dtr run` unless the user deliberately
+requests an explicit provider/model override. Do not narrate routing reasoning
+or paste source, logs, or transcripts into that CLI task.
+
 Select the model for the adjusted tier: Haiku for fast, Sonnet for standard or
 deep, and Opus for critical. The supplied role profile (`read-only-reviewer`,
 `test-runner`, `implementation-owner`, or `critical-reviewer`) inherits the

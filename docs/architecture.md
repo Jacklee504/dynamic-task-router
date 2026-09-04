@@ -6,6 +6,8 @@
 Code can lead through its STDIO MCP server; provider adapters remain behind the
 router. The runtime performs deterministic selection, read-only fan-out,
 metadata-only telemetry, explicit pipelines, and opt-in isolated worktrees.
+Runtime state is outside the target repository in a private, per-target
+operating-system temporary directory.
 
 ```text
 TUI / CLI / Codex / Claude Code / MCP client
@@ -18,12 +20,20 @@ TUI / CLI / Codex / Claude Code / MCP client
        ├── Claude adapter
        ├── Codex adapter
        ├── local Ollama adapter
-       └── OpenRouter adapter (optional, disabled by default)
+       ├── Antigravity CLI adapter (account-backed, optional)
+       ├── OpenRouter adapter (optional, disabled by default)
+       └── Featherless adapter (optional process credential)
 ```
 
 The lead retains planning, integration, and final approval. See
 [MCP](mcp.md), [pipelines](pipelines.md), [worktrees](worktrees.md), and
 [providers](providers.md).
+
+The [sequential Ollama fallback](ollama.md) sits outside this runtime path. It
+is for resource-constrained machines: the parent prepares a bounded packet,
+the user pauses or closes the conflicting host, Ollama returns an advisory
+result, and the parent later reviews it. It is never selected as a concurrent
+adapter.
 
 `core/` is the source of truth for behavior and model-tier selection. Platform
 packages are adapters, not forks of the workflow:

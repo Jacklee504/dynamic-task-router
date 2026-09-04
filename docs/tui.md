@@ -40,15 +40,18 @@ The provider view reports configured status and health. The models view reports
 registry metadata, availability, context windows, and private-code eligibility.
 `/context` only shows current occupancy when a provider has actually reported
 it; otherwise it shows the configured window and labels current usage unknown.
-`/usage` separates DTR activity from account quota. Claude and Codex quota is
-unavailable by design because DTR does not scrape account pages. OpenRouter
-budget remains the configured router cap until an authoritative provider source
-is added. Ollama availability/model installation comes through the orchestrator.
+`/usage` aggregates persisted DTR execution telemetry for Claude, Codex, Ollama,
+OpenRouter, and Featherless: run counts, outcomes, duration, and provider-reported token or
+cost fields where a run supplied them. Claude and Codex use structured native
+CLI output when available. It does not estimate tokens from text or scrape
+subscription/account pages, so a missing field remains `unknown`; subscription
+quota is intentionally `not-exposed`. Ollama has no hosted account quota, and
+OpenRouter and Featherless account balances are not queried. Ollama availability/model installation comes through the orchestrator.
 When its local runtime is reachable, DTR also shows loaded model name, reported
 runtime size, context length, and expiry. These fields are Ollama runtime
 metadata, not total macOS memory usage.
 
-`/runs` reads a bounded recent set of persisted `.dtr/runs` status records, and
+`/runs` reads a bounded recent set of temporary DTR status records, and
 `/run <id>` reads one record on demand. `/abort` requests cancellation only for
 a process owned by the current TUI application; it first shows `aborting` and
 does not claim `aborted` until the child process returns.

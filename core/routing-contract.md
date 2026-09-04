@@ -27,10 +27,12 @@
 
 ## Compact task contract
 
-Use this default packet. Aim for 300 tokens or fewer, excluding an unavoidable
-literal diff or failing-output excerpt. Point to paths and symbols instead of
-pasting file contents; include an excerpt only when the target cannot obtain
-the fact by reading the named file.
+For native host subchats and subagents, use this default packet. Aim for 300
+tokens or fewer, excluding an unavoidable literal diff or failing-output
+excerpt. Point to paths and symbols instead of pasting file contents; include
+an excerpt only when the target cannot obtain the fact by reading the named
+file. The executable DTR CLI is stricter: use `dtr start`, then send a single
+100-word `--task` and an optional `--files` path list.
 
 ```text
 GOAL: <observable outcome>

@@ -2,7 +2,9 @@ version: 1
 phase: 2
 defaults:
   readOnly: true
-  timeoutMs: 120000
+  # Total worker runtime: startup, queueing, tool use, reasoning, and final output.
+  # Keep this above normal hosted-model completion time; health checks remain 5 seconds.
+  timeoutMs: 600000
 rules:
   automaticSelection: true
   requireExplicitFallback: true
@@ -15,6 +17,17 @@ diversity:
   low: { minimumFamilies: 1 }
   medium: { minimumFamilies: 2 }
   high: { minimumFamilies: 2, requireIndependentReview: true }
+prompt:
+  # Conservative character-based estimate; DTR never reads host instruction files.
+  charsPerToken: 4
+  # Normal `dtr route` packets are capped at 100 words. This leaves a small,
+  # explicit allowance for DTR's return contract and provider-specific rules.
+  maxInputTokens: 600
+  responseReserveTokens: 384
+  # Reserve known host-injected context here when it materially affects a model.
+  hostContextReserveTokens: {}
+  # Optional, bounded provider-specific task instructions. Keep empty by default.
+  providers: {}
 budget:
   mode: ignore
   max_estimated_cost_usd: 0.50

@@ -1,0 +1,9 @@
+id: private-code-implementation
+role: implementer
+complexity: normal
+risk: medium
+private_code: true
+expect:
+  minimum_effort: medium
+  private_code_allowed: true
+  read_only: true

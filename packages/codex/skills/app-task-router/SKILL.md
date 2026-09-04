@@ -10,6 +10,12 @@ child task, never an independent owner. Read
 [host compatibility](references/host-compatibility.md) before dispatch and fail
 closed if a needed control is unavailable.
 
+When the user specifically asks to use the installed executable DTR CLI, run
+`dtr start` before preparing the task. Use the resulting compact contract with
+`dtr route --task "…" --files "path1,path2"`; reserve `dtr run` for a
+deliberate explicit provider/model override. Do not put routing rationale,
+source, logs, or transcripts in the CLI task.
+
 ## Route
 
 1. State the objective, minimum safe change, checks, and safety boundary.

@@ -1,0 +1,9 @@
+id: huge-context-architecture
+role: architect
+complexity: extreme
+risk: medium
+context: huge
+expect:
+  minimum_effort: high
+  huge_context: true
+  read_only: true

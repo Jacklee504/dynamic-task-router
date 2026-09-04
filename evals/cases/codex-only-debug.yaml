@@ -1,0 +1,9 @@
+id: codex-only-debug
+role: debugger
+complexity: difficult
+risk: medium
+allowed_providers: [codex]
+expect:
+  minimum_effort: high
+  provider: codex
+  read_only: true

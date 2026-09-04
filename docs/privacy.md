@@ -9,4 +9,5 @@ fall back to a remote provider.
 Treat model privacy metadata as a reviewed policy decision, not marketing
 copy. Before enabling a remote model, set its `privacy.private_code_allowed`
 only after confirming the provider terms suitable for your data. Prompts and
-model outputs are not stored in `.dtr`; only selection and run metadata are.
+model outputs are not stored; only selection and run metadata may be retained in
+DTR's private operating-system temporary state directory.
