@@ -67,6 +67,11 @@ configured model and records `selected-model preflight failed` plus
 falls back. DTR does not send automatic “reply yes” probes because those consume
 quota and may wake local inference.
 
+Two provider failures within five minutes open a temporary two-minute circuit.
+While open, the provider is rejected before selection and the reason appears in
+route metadata. No prompt, output, or error text is stored; a successful run
+clears its reliability record.
+
 Edit `config/models.yaml` to declare enabled models, model families, quality
 tiers, role-score priors, capabilities, and supported effort values. Edit
 `config/routing-policy.yaml` for effort, diversity, timeout, and safety policy.

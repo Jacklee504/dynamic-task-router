@@ -3,7 +3,7 @@ import { selectEffort } from "./effort.js";
 import type { ModelSelection, SelectionExplanation, TaskProfile } from "../types.js";
 
 export type Availability = Record<string, boolean | undefined>;
-export type SelectionOptions = { requireWrite?: boolean; modelId?: string; excludedModels?: Set<string> };
+export type SelectionOptions = { requireWrite?: boolean; modelId?: string; excludedModels?: Set<string>; circuitOpenProviders?: Set<string> };
 const tiers = ["fast", "standard", "deep", "critical"] as const;
 type ModelTier = typeof tiers[number];
 
@@ -24,6 +24,7 @@ export function selectModel(
     if (!model.enabled) reasons.push("disabled");
     if (options.modelId && model.id !== options.modelId) reasons.push("not selected by the explicit model override");
     if (options.excludedModels?.has(model.id)) reasons.push("failed selected-model preflight");
+    if (options.circuitOpenProviders?.has(model.provider)) reasons.push("provider circuit breaker is temporarily open");
     if (availability[model.id] === false) reasons.push("provider unavailable");
     if (excludedFamilies.has(model.family)) reasons.push(`family '${model.family}' already selected`);
     if (task.requireLocal && !model.local) reasons.push("local-only task");
@@ -50,6 +51,10 @@ export function selectModel(
     if (task.risk === "high") { score += 2; scoreReasons.push("high-risk suitability bonus=2"); }
     if (task.complexity === "extreme") { score += 1; scoreReasons.push("extreme-complexity suitability bonus=1"); }
     if (config.policy.budget.mode === "prefer_free" && estimatedCost === 0) { score += 1; scoreReasons.push("free-model preference bonus=1"); }
+    for (const preference of config.policy.preferences) {
+      if (Date.parse(preference.until) <= Date.now() || (preference.provider && preference.provider !== model.provider) || (preference.model && preference.model !== model.id)) continue;
+      score += preference.bonus; scoreReasons.push(`active preference bonus=${preference.bonus} until=${preference.until}`);
+    }
     if (tierDistance < 0) scoreReasons.push(`tier fallback: ${model.tier} is below required ${requiredTier}`);
     else if (tierDistance > 0) scoreReasons.push(`stronger-than-required tier: ${model.tier}`);
     eligible.push({ model, score, tierDistance, reasons: scoreReasons });

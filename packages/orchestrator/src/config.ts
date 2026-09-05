@@ -78,12 +78,22 @@ const userModelOverrideSchema = z.object({
   efforts: z.array(effortSchema).min(1).optional(),
   default_effort: effortSchema.optional(),
 }).strict();
+const preferenceSchema = z.object({
+  provider: providerSchema.optional(),
+  model: z.string().min(1).optional(),
+  bonus: z.number().int().min(1).max(10).default(2),
+  until: z.string().datetime(),
+}).strict().superRefine((value, context) => {
+  if (!value.provider && !value.model) context.addIssue({ code: "custom", message: "preference needs provider or model" });
+  if (Date.parse(value.until) <= Date.now()) context.addIssue({ code: "custom", message: "preference until must be in the future" });
+});
 const userConfigSchema = z.object({
   version: z.literal(1),
   models: z.object({
     overrides: z.array(userModelOverrideSchema).max(100).default([]),
     additions: z.array(modelSchema).max(100).default([]),
   }).strict().default({ overrides: [], additions: [] }),
+  routing: z.object({ preferences: z.array(preferenceSchema).max(20).default([]) }).strict().default({ preferences: [] }),
 }).strict();
 
 const routingPolicySchema = z.object({
@@ -125,6 +135,7 @@ const routingPolicySchema = z.object({
     }).default({}),
   }).default({ charsPerToken: 4, maxInputTokens: 1500, responseReserveTokens: 1024, hostContextReserveTokens: {}, providers: {} }),
   budget: z.object({ mode: z.enum(["ignore", "prefer_free", "capped"]), max_estimated_cost_usd: z.number().nonnegative() }).default({ mode: "ignore", max_estimated_cost_usd: 0 }),
+  preferences: z.array(preferenceSchema).default([]),
 });
 
 const pipelineStageSchema = z.object({
@@ -221,7 +232,9 @@ export async function loadConfig(configDir = resolve(process.cwd(), "config"), p
     readFile(resolve(configDir, "pipelines.yaml"), "utf8"),
   ]);
   const overlayText = personalConfig ? await readOptionalPersonalConfig(personalConfig) : undefined;
-  return parseConfig(overlayText ? mergeUserConfig(modelsText, overlayText) : modelsText, policyText, pipelinesText);
+  const config = parseConfig(overlayText ? mergeUserConfig(modelsText, overlayText) : modelsText, policyText, pipelinesText);
+  if (overlayText) config.policy.preferences = userConfigSchema.parse(parse(overlayText)).routing.preferences;
+  return config;
 }
 
 async function readOptionalPersonalConfig(path: string): Promise<string | undefined> {

@@ -24,6 +24,12 @@ models:
     - id: codex-terra
       roles: { implementer: 10, reviewer: 9 }
   additions: []
+routing:
+  preferences:
+    # Temporary key-free preference, for example while credits remain.
+    - provider: opencode
+      bonus: 3
+      until: "2026-09-19T00:00:00Z"
 ```
 
 An override may set only `enabled`, `tier`, role scores, supported efforts, or
@@ -33,3 +39,7 @@ credential-shaped field fail closed.
 
 See [OpenCode](opencode.md) for an addition template. Run `dtr models` after a
 change to see the effective inventory.
+
+Preferences are score bonuses only: DTR still enforces privacy, capability,
+and minimum-tier constraints. Each needs an expiry, so temporary preferences
+cannot silently become permanent.

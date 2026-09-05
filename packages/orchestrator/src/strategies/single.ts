@@ -7,6 +7,7 @@ import { selectModel } from "../routing/selector.js";
 import { requiredFamilies } from "../routing/diversity.js";
 import { writeRunLog } from "../telemetry/run-log.js";
 import { stateDirectoryFor } from "../state.js";
+import { openCircuitProviders, recordProviderFailure, recordProviderSuccess } from "../circuit-breaker.js";
 import type { Provider, RoutingMetadata, TaskProfile, WorkerLifecycle, WorkerRequest, WorkerResult, WriteBoundary } from "../types.js";
 
 export type RoutedRun = { result: WorkerResult; runLog: string; routing: RoutingMetadata };
@@ -23,7 +24,8 @@ export async function runSingle(
   if (requiredFamilies(config, profile.diversity) > 1) {
     throw new Error("This task requires independent model families; use dtr fanout rather than dtr route");
   }
-  const selectionOptions = { requireWrite: Boolean(options.writeBoundary), ...(options.modelId ? { modelId: options.modelId } : {}) };
+  const circuitOpenProviders = await openCircuitProviders(cwd);
+  const selectionOptions = { requireWrite: Boolean(options.writeBoundary), ...(options.modelId ? { modelId: options.modelId } : {}), circuitOpenProviders };
   const preferred = selectModel(config, profile, {}, options.excludedFamilies, selectionOptions);
   const failedPreflights = new Set<string>();
   let selection = selectModel(config, profile, {}, options.excludedFamilies, selectionOptions);
@@ -60,8 +62,8 @@ export async function runSingle(
   const workerId = options.workerId ?? model.id;
   options.lifecycle?.onWorkerStarted?.({ workerId, provider: model.provider, model: model.model, role: profile.role, effort: effort.effective });
   const result = await provider.run(request);
-  if (result.success) options.lifecycle?.onWorkerCompleted?.({ workerId, result });
-  else options.lifecycle?.onWorkerFailed?.({ workerId, error: result.error ?? "Worker failed" });
+  if (result.success) { await recordProviderSuccess(model.provider, cwd); options.lifecycle?.onWorkerCompleted?.({ workerId, result }); }
+  else { await recordProviderFailure(model.provider, cwd); options.lifecycle?.onWorkerFailed?.({ workerId, error: result.error ?? "Worker failed" }); }
   const routing: RoutingMetadata = {
     profile,
     selectedModel: model.id,

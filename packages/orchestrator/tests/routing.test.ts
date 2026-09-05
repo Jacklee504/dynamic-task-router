@@ -109,6 +109,17 @@ describe("routing policy", () => {
     expect(fallback?.model).toBe("codex-build");
     expect(fallback?.explanation.rejected["claude-review"]).toContain("provider unavailable");
   });
+  it("applies only active temporary preferences without changing the required tier", () => {
+    const preferred = structuredClone(config);
+    preferred.models.find((model) => model.id === "claude-review")!.roles.reviewer = 8;
+    preferred.models.find((model) => model.id === "codex-build")!.roles.reviewer = 8;
+    preferred.models.find((model) => model.id === "claude-review")!.tier = "standard";
+    preferred.models.find((model) => model.id === "codex-build")!.tier = "standard";
+    preferred.policy.preferences = [{ provider: "codex", bonus: 3, until: "2099-01-01T00:00:00.000Z" }];
+    expect(selectModel(preferred, profile())?.model).toBe("codex-build");
+    preferred.policy.preferences = [{ provider: "codex", bonus: 3, until: "2000-01-01T00:00:00.000Z" }];
+    expect(selectModel(preferred, profile())?.model).toBe("claude-review");
+  });
   it("fails closed for privacy-sensitive work when no local model is available", () => {
     expect(selectModel(config, profile({ privacySensitive: true }), { "qwen-local": false })).toBeUndefined();
   });
