@@ -147,6 +147,10 @@ separate lets each be concise, accurate, and safe.
 
 ```text
 core/                 Host-neutral contract and scenarios
+config/               User-editable model inventory and routing-policy defaults
+evals/                Routing-policy evaluation cases (always version-controlled)
+packages/orchestrator/  Deterministic routing, execution, telemetry, CLI (`dtr`), and MCP server (`dtr-mcp`)
+packages/tui/         Interactive terminal UI
 packages/codex/       Installable Codex plugin
 packages/claude/      Installable Claude Code plugin
 packages/qwen/        Native Qwen Code extension
