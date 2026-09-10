@@ -27,7 +27,14 @@ export const commandRegistry: TuiCommand[] = [
   { name: "fanout", description: "Run independent read-only analyses.", usage: "/fanout <task>", execute: (args, context) => submit(args.join(" "), context, "fanout") },
   { name: "pipeline", description: "Run the default safe review pipeline.", usage: "/pipeline <task>", execute: (args, context) => submit(args.join(" "), context, "pipeline") },
   { name: "models", aliases: ["m"], description: "Show the configured model registry.", usage: "/models", execute: async () => ({ screen: "models" }) },
-  { name: "model", description: "Temporarily select a registry model, or auto.", usage: "/model <id|auto>", execute: async (args, context) => !args[0] ? { message: "Usage: /model <id|auto>" } : override(context, { modelId: args[0] === "auto" ? undefined : args[0] }) },
+  { name: "model", description: "Temporarily select a registry model, or auto.", usage: "/model <id|auto>", execute: async (args, context) => {
+    if (!args[0]) return { message: "Usage: /model <id|auto>" };
+    if (args[0] === "auto") return override(context, { modelId: undefined });
+    const models = await context.application.listModels();
+    const found = models.find((model) => model.id === args[0]);
+    if (!found) return { message: `Unknown model id '${args[0]}'. Use /models to list the registry.` };
+    return { ...override(context, { modelId: args[0] }), message: found.available ? override(context, { modelId: args[0] }).message : `Session routing override updated; note that ${args[0]} is currently unavailable.` };
+  } },
   { name: "providers", description: "Show provider health and capabilities.", usage: "/providers", execute: async () => ({ screen: "providers" }) },
   { name: "provider", description: "Temporarily prefer a provider, or auto.", usage: "/provider <provider|auto>", execute: async (args, context) => !args[0] || (args[0] !== "auto" && !providers.has(args[0] as ProviderId)) ? { message: "Usage: /provider <claude|codex|ollama|openrouter|featherless|antigravity|opencode|auto>" } : override(context, { provider: args[0] === "auto" ? undefined : args[0] as ProviderId }) },
   { name: "effort", description: "Temporarily request reasoning effort, or auto.", usage: "/effort <low|medium|high|xhigh|max|auto>", execute: async (args, context) => !args[0] || (args[0] !== "auto" && !efforts.has(args[0] as Effort)) ? { message: "Usage: /effort <low|medium|high|xhigh|max|auto>" } : override(context, { effort: args[0] === "auto" ? undefined : args[0] as Effort }) },
@@ -37,7 +44,7 @@ export const commandRegistry: TuiCommand[] = [
   { name: "status", description: "Return to the active-run dashboard.", usage: "/status", execute: async () => ({ screen: "dashboard" }) },
   { name: "workers", description: "Return to active routed tasks.", usage: "/workers", execute: async () => ({ screen: "dashboard" }) },
   { name: "runs", aliases: ["r"], description: "Show recent persisted runs.", usage: "/runs", execute: async () => ({ screen: "runs" }) },
-  { name: "run", description: "Open a persisted run by UUID.", usage: "/run <id>", execute: async (args) => args[0] ? ({ screen: "run-detail", selectedRunId: args[0] }) : ({ message: "Usage: /run <run-id>" }) },
+  { name: "run", description: "Open a persisted run by UUID or unambiguous prefix.", usage: "/run <id>", execute: async (args) => args[0] ? ({ screen: "run-detail", selectedRunId: args[0] }) : ({ message: "Usage: /run <run-id or prefix>" }) },
   { name: "abort", description: "Request cancellation of the active run.", usage: "/abort [run-id]", execute: async (args, context) => { const runId = args[0] ?? context.activeRunId; if (!runId) return { message: "No active DTR run to abort." }; const result = await context.application.abort(runId); return { message: result.accepted ? `Abort requested for ${runId.slice(0, 8)}; awaiting process confirmation.` : "That run is not owned by this TUI session." }; } },
   { name: "health", description: "Refresh local provider health.", usage: "/health", execute: async () => ({ screen: "providers", message: "Provider health refreshed." }) },
   { name: "config", description: "Show read-only effective routing policy.", usage: "/config", execute: async () => ({ screen: "config" }) },
