@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, resolve } from "node:path";
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 
 import { findModel, loadConfig, repositoryRootFromConfig, userConfigPath } from "./config.js";
 import { DISPATCH_CONTRACT, buildCompactTaskPacket, compactTaskPrompt } from "./contracts.js";
@@ -15,7 +15,7 @@ import { selectEffort } from "./routing/effort.js";
 import { explainSelection } from "./routing/explain.js";
 import { modelAvailability } from "./routing/runtime.js";
 import { preflightModel } from "./readiness.js";
-import { estimateCost, selectModel } from "./routing/selector.js";
+import { estimateCost, selectModel, selectionRejections } from "./routing/selector.js";
 import { stateDirectoryFor } from "./state.js";
 import { runFanout } from "./strategies/fanout.js";
 import { runPipeline } from "./strategies/pipeline.js";
@@ -39,7 +39,10 @@ const contexts: ContextRequirement[] = ["small", "medium", "large", "huge"];
 
 export async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv;
-  const flags = parseFlags(rest);
+  let subcommand = "";
+  let flagArgs = rest;
+  if (command === "models" && rest[0] && !rest[0].startsWith("--")) { subcommand = rest[0]; flagArgs = rest.slice(1); }
+  const flags = parseFlags(flagArgs);
   const configDir = typeof flags["config-dir"] === "string" ? resolve(flags["config-dir"]) : resolve(dirname(fileURLToPath(import.meta.url)), "../../../config");
   try {
     if (!command || command === "tui") {
@@ -48,13 +51,18 @@ export async function main(argv: string[]): Promise<number> {
       await runTui({ configDir, cwd: cwdFrom(flags) });
       return 0;
     }
+    if (command === "help" || command === "--help") { printUsage(process.stdout); return 0; }
+    if (command === "version" || command === "--version") { printVersion(); return 0; }
     if (command === "start") { console.log(DISPATCH_CONTRACT); return 0; }
     if (command === "config") return reportConfig(configDir);
     const config = await loadConfig(configDir, userConfigPath());
     const providers = createProviders(new NodeProcessRunner());
     if (command === "health") return await reportHealth(config.models, providers);
     if (command === "doctor") return await doctor(config.models, flags);
-    if (command === "models") return await (flags.refresh ? refreshModels(configDir) : reportModels(config, providers));
+    if (command === "models") {
+      if (subcommand && subcommand !== "refresh") throw new Error(`Unexpected argument: ${subcommand}`);
+      return await (subcommand === "refresh" || flags.refresh ? refreshModels(configDir) : reportModels(config, providers));
+    }
     if (command === "opencode-models") return await reportOpenCodeModels(providers, cwdFrom(flags));
     if (command === "run") return await runExplicit(configDir, flags, config, providers);
     if (command === "select") return await selectOnly(flags, config, providers);
@@ -66,6 +74,7 @@ export async function main(argv: string[]): Promise<number> {
     if (command === "stats") return await stats(flags);
     if (command === "usage") return await usage(flags);
     if (command === "outcome") return await outcome(flags);
+    console.error(`dtr: unknown command: ${command}`);
     printUsage(); return 1;
   } catch (error) {
     console.error(`dtr: ${error instanceof Error ? error.message : String(error)}`); return 1;
@@ -157,8 +166,8 @@ async function runExplicit(configDir: string, flags: Flags, config: Awaited<Retu
 }
 
 async function selectOnly(flags: Flags, config: Awaited<ReturnType<typeof loadConfig>>, providers: ReturnType<typeof createProviders>): Promise<number> {
-  const prompt = typeof flags.prompt === "string" ? flags.prompt : ""; const profile = profileFrom(flags, prompt); const selection = selectModel(config, profile, await modelAvailability(config, providers));
-  if (!selection) { console.log(JSON.stringify(explainSelection(profile, undefined), null, 2)); return 1; }
+  const prompt = typeof flags.prompt === "string" ? flags.prompt : ""; const profile = profileFrom(flags, prompt); const availability = await modelAvailability(config, providers); const selection = selectModel(config, profile, availability);
+  if (!selection) { console.log(JSON.stringify(explainSelection(profile, undefined, selectionRejections(config, profile, availability)), null, 2)); return 1; }
   const model = findModel(config, selection.model)!; const effort = selectEffort(config, model, profile);
   console.log(JSON.stringify({ ...explainSelection(profile, selection), effort, provider: model.provider, model: model.model }, null, 2)); return 0;
 }
@@ -167,7 +176,7 @@ async function route(configDir: string, flags: Flags, config: Awaited<ReturnType
   if (flags.prompt !== undefined) throw new Error("`dtr route` accepts --task, not --prompt. Run `dtr start` for the compact dispatch contract.");
   if (flags["include-files"] !== undefined) throw new Error("`dtr route` accepts --files (paths only), not --include-files. Do not paste file content into a normal dispatch.");
   const task = requiredFlag(flags, "task"); const cwd = cwdFrom(flags); const role = routeRole(flags, task); const prompt = buildCompactTaskPacket(task, typeof flags.files === "string" ? flags.files : undefined); const run = await runSingle(configDir, config, providers, prompt, cwd, profileFrom(flags, task, undefined, role));
-  if (boolFlag(flags, "verbose")) console.error(JSON.stringify({ routing: run.routing, runId: run.runLog, success: run.result.success }, null, 2));
+  if (boolFlag(flags, "verbose")) console.error(JSON.stringify({ routing: run.routing, runLog: run.runLog, success: run.result.success }, null, 2));
   printResult(run.result.output, run.result.error, run.runLog, boolFlag(flags, "verbose")); return run.result.success ? 0 : 1;
 }
 
@@ -175,7 +184,7 @@ async function fanout(configDir: string, flags: Flags, config: Awaited<ReturnTyp
   const task = requiredFlag(flags, "prompt"); const cwd = cwdFrom(flags); const prompt = await promptWithContext(flags, task, cwd); const families = typeof flags.families === "string" ? Number.parseInt(flags.families, 10) : undefined;
   if (families !== undefined && (!Number.isInteger(families) || families < 2)) throw new Error("--families must be an integer of at least 2");
   const runs = await runFanout(configDir, config, providers, prompt, cwd, profileFrom(flags, task, families), families);
-  for (const run of runs) { console.log(JSON.stringify({ model: run.model, routing: run.routing, runId: run.runLog, success: run.result.success }, null, 2)); printResult(run.result.output, run.result.error, run.runLog); }
+  for (const run of runs) { console.log(JSON.stringify({ model: run.model, routing: run.routing, runLog: run.runLog, success: run.result.success }, null, 2)); printResult(run.result.output, run.result.error, run.runLog); }
   return runs.every((run) => run.result.success) ? 0 : 1;
 }
 
@@ -217,9 +226,31 @@ function cwdFrom(flags: Flags): string { return typeof flags.cwd === "string" ? 
 function boolFlag(flags: Flags, name: string): boolean { return flags[name] === true || flags[name] === "true"; }
 function enumFlag<T extends string>(flags: Flags, name: string, values: readonly T[]): T { const value = requiredFlag(flags, name); if (!values.includes(value as T)) throw new Error(`Invalid --${name}: ${value}`); return value as T; }
 function optionalEnumFlag<T extends string>(flags: Flags, name: string, values: readonly T[]): T | undefined { return flags[name] === undefined ? undefined : enumFlag(flags, name, values); }
-function parseFlags(args: string[]): Flags { const flags: Flags = {}; for (let index = 0; index < args.length; index += 1) { const arg = args[index]; if (!arg?.startsWith("--")) throw new Error(`Unexpected argument: ${arg ?? ""}`); const key = arg.slice(2); const value = args[index + 1]; if (!value || value.startsWith("--")) { flags[key] = true; continue; } flags[key] = value; index += 1; } return flags; }
+function parseFlags(args: string[]): Flags { const flags: Flags = {}; for (let index = 0; index < args.length; index += 1) { const arg = args[index]; if (!arg?.startsWith("--")) throw new Error(`Unexpected argument: ${arg ?? ""}`); const body = arg.slice(2); const equals = body.indexOf("="); if (equals >= 0) { flags[body.slice(0, equals)] = body.slice(equals + 1); continue; } const value = args[index + 1]; if (!value || value.startsWith("--")) { flags[body] = true; continue; } flags[body] = value; index += 1; } return flags; }
 function requiredFlag(flags: Flags, name: string): string { const value = flags[name]; if (typeof value !== "string" || value.length === 0) throw new Error(`--${name} is required`); return value; }
 function printResult(output: string, error: string | undefined, logPath: string, showLog = false): void { if (output) process.stdout.write(output.endsWith("\n") ? output : `${output}\n`); if (error) console.error(`dtr: ${error}`); if (showLog) console.error(`dtr: run log ${logPath}`); }
-function printUsage(): void { console.error("Usage: dtr <start|tui|health|doctor|config|models|opencode-models|run|select|route|fanout|pipeline|status|evaluate|stats|usage|outcome> [options]"); console.error("Start: dtr start  (print the compact dispatch contract; no model call)"); console.error("Route: dtr route --task <100-word task> [--files path1,path2] [--role <role>] [--provider <provider>] [profile flags]"); console.error("Run: dtr run --allow-raw-prompt --provider <provider> --model <model> --role <role> --prompt <text> (expert override)"); console.error("Context: raw run, fanout, and pipeline accept --include-files path1,path2 (explicit files below --cwd only)"); console.error("Doctor: dtr doctor [--verbose] [--cwd <target-repository>]"); console.error("Config: dtr config (show the non-secret personal overlay path)"); console.error("TUI: dtr tui [--cwd <target-repository>]"); console.error("Models: dtr models; dtr opencode-models (OpenCode's unprofiled configured catalog)"); console.error("Select: dtr select --role <role> [--prompt <text>] [--complexity <level>] [--risk <level>] [--diversity <level>] [--provider <provider>]"); console.error("Fanout: dtr fanout --families <n> --role <role> --prompt <text> [profile flags]"); console.error("Pipeline: dtr pipeline --template <name> --role <role> --prompt <text> [--write --scope path1,path2]"); console.error("Usage: dtr usage [--cwd <repo>] (DTR execution telemetry; not account quota)"); console.error("Status: dtr status --run-id <uuid> [--cwd <repo>]"); }
+function printUsage(stream: NodeJS.WriteStream = process.stderr): void {
+  const lines = [
+    "Usage: dtr <start|tui|health|doctor|config|models|opencode-models|run|select|route|fanout|pipeline|status|evaluate|stats|usage|outcome|help|version> [options]",
+    "Start: dtr start  (print the compact dispatch contract; no model call)",
+    "Route: dtr route --task <100-word task> [--files path1,path2] [--role <role>] [--provider <provider>] [profile flags]",
+    "Run: dtr run --allow-raw-prompt --provider <provider> --model <model> --role <role> --prompt <text> (expert override)",
+    "Context: raw run, fanout, and pipeline accept --include-files path1,path2 (explicit files below --cwd only)",
+    "Doctor: dtr doctor [--verbose] [--cwd <target-repository>]",
+    "Config: dtr config (show the non-secret personal overlay path)",
+    "TUI: dtr tui [--cwd <target-repository>]",
+    "Models: dtr models [--refresh] (or `dtr models refresh`); dtr opencode-models (OpenCode's unprofiled configured catalog)",
+    "Select: dtr select --role <role> [--prompt <text>] [--complexity <level>] [--risk <level>] [--diversity <level>] [--provider <provider>]",
+    "Fanout: dtr fanout --families <n> --role <role> --prompt <text> [profile flags]",
+    "Pipeline: dtr pipeline --template <name> --role <role> --prompt <text> [--write --scope path1,path2]",
+    "Usage: dtr usage [--cwd <repo>] (DTR execution telemetry; not account quota)",
+    "Status: dtr status --run-id <uuid> [--cwd <repo>]",
+    "Help: dtr --help; Version: dtr --version",
+  ];
+  for (const line of lines) stream.write(`${line}\n`);
+}
+function printVersion(): void {
+  try { const pkg = JSON.parse(readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), "../package.json"), "utf8")) as { version?: string }; console.log(`dtr ${pkg.version ?? "unknown"}`); } catch { console.log("dtr unknown"); }
+}
 function isMainModule(): boolean { try { return Boolean(process.argv[1]) && import.meta.url === pathToFileURL(realpathSync(process.argv[1]!)).href; } catch { return false; } }
 if (isMainModule()) main(process.argv.slice(2)).then((code) => { process.exitCode = code; });
