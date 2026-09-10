@@ -18,39 +18,19 @@ export function selectModel(
   const eligible: Array<{ model: ModelConfig; score: number; tierDistance: number; reasons: string[] }> = [];
   const requiredTier = minimumTier(task);
   for (const model of config.models) {
-    const reasons: string[] = [];
-    const roleScore = model.roles[task.role];
-    const minimumRole = task.risk === "high" || task.complexity === "extreme" ? 8 : task.complexity === "difficult" ? 6 : 1;
-    if (!model.enabled) reasons.push("disabled");
-    if (options.modelId && model.id !== options.modelId) reasons.push("not selected by the explicit model override");
-    if (options.excludedModels?.has(model.id)) reasons.push("failed selected-model preflight");
-    if (options.circuitOpenProviders?.has(model.provider)) reasons.push("provider circuit breaker is temporarily open");
-    if (availability[model.id] === false) reasons.push("provider unavailable");
-    if (excludedFamilies.has(model.family)) reasons.push(`family '${model.family}' already selected`);
-    if (task.requireLocal && !model.local) reasons.push("local-only task");
-    if (task.privacySensitive && !model.local) reasons.push("privacy-sensitive task requires local model");
-    if (task.allowRemote === false && !model.local) reasons.push("remote models are disallowed");
-    if (task.privateCode && !model.privacy.privateCodeAllowed) reasons.push("private code is not approved for this model");
-    if (task.allowedFamilies && !task.allowedFamilies.includes(model.family)) reasons.push("model family is not allowed");
-    if (task.allowedProviders && !task.allowedProviders.includes(model.provider)) reasons.push("provider is not allowed");
-    if (task.requiresTools && !model.capabilities.tools) reasons.push("required tools unavailable");
-    if (options.requireWrite && !model.capabilities.writeSafe) reasons.push("isolated write capability unavailable");
-    if (task.contextRequirement === "huge" && !model.capabilities.hugeContext) reasons.push("huge context unavailable");
-    if (roleScore < minimumRole) reasons.push(`role score ${roleScore} below minimum ${minimumRole}`);
-    try { selectEffort(config, model, task); } catch (error) { reasons.push(error instanceof Error ? error.message : String(error)); }
-    const estimatedCost = estimateCost(model);
-    if (config.policy.budget.mode === "capped" && estimatedCost > config.policy.budget.max_estimated_cost_usd) reasons.push(`estimated cost $${estimatedCost.toFixed(4)} exceeds cap`);
+    const reasons = gateReasons(model, config, task, availability, excludedFamilies, options);
     if (reasons.length > 0) {
       rejected[model.id] = reasons;
       continue;
     }
+    const roleScore = model.roles[task.role]!;
     let score = roleScore;
     const tierDistance = tierIndex(model.tier) - tierIndex(requiredTier);
     const scoreReasons = [`${task.role} role score=${roleScore}`, `tier=${model.tier}; required tier=${requiredTier}`];
     if (task.preferLocal && model.local) { score += 2; scoreReasons.push("local preference bonus=2"); }
     if (task.risk === "high") { score += 2; scoreReasons.push("high-risk suitability bonus=2"); }
     if (task.complexity === "extreme") { score += 1; scoreReasons.push("extreme-complexity suitability bonus=1"); }
-    if (config.policy.budget.mode === "prefer_free" && estimatedCost === 0) { score += 1; scoreReasons.push("free-model preference bonus=1"); }
+    if (config.policy.budget.mode === "prefer_free" && estimateCost(model) === 0) { score += 1; scoreReasons.push("free-model preference bonus=1"); }
     for (const preference of config.policy.preferences) {
       if (Date.parse(preference.until) <= Date.now() || (preference.provider && preference.provider !== model.provider) || (preference.model && preference.model !== model.id)) continue;
       score += preference.bonus; scoreReasons.push(`active preference bonus=${preference.bonus} until=${preference.until}`);
@@ -69,6 +49,58 @@ export function selectModel(
     rejected,
   };
   return { model: winner.model.id, score: winner.score, explanation };
+}
+
+/** The per-model rejection map for a profile, even when no model is eligible. */
+export function selectionRejections(config: RouterConfig, task: TaskProfile, availability: Availability = {}, options: SelectionOptions = {}, excludedFamilies = new Set<string>()): Record<string, string[]> {
+  const rejected: Record<string, string[]> = {};
+  for (const model of config.models) {
+    const reasons = gateReasons(model, config, task, availability, excludedFamilies, options);
+    if (reasons.length > 0) rejected[model.id] = reasons;
+  }
+  return rejected;
+}
+
+/** Compact one-line summary of rejection reasons for error messages. */
+export function summarizeRejections(rejected: Record<string, string[]>): string {
+  const lines = Object.entries(rejected).map(([id, reasons]) => `${id} (${reasons.join("; ")})`);
+  if (!lines.length) return "constraints cannot be safely satisfied";
+  return lines.length > 5 ? `${lines.slice(0, 5).join(", ")}, (+${lines.length - 5} more)` : lines.join(", ");
+}
+
+function gateReasons(
+  model: ModelConfig,
+  config: RouterConfig,
+  task: TaskProfile,
+  availability: Availability,
+  excludedFamilies: Set<string>,
+  options: SelectionOptions,
+): string[] {
+  const reasons: string[] = [];
+  const declaredRoleScore = model.roles[task.role];
+  const roleScore = declaredRoleScore ?? 0;
+  const minimumRole = task.risk === "high" || task.complexity === "extreme" ? 8 : task.complexity === "difficult" ? 6 : 1;
+  if (!model.enabled) reasons.push("disabled");
+  if (options.modelId && model.id !== options.modelId) reasons.push("not selected by the explicit model override");
+  if (options.excludedModels?.has(model.id)) reasons.push("failed selected-model preflight");
+  if (options.circuitOpenProviders?.has(model.provider)) reasons.push("provider circuit breaker is temporarily open");
+  if (availability[model.id] === false) reasons.push("provider unavailable");
+  if (excludedFamilies.has(model.family)) reasons.push(`family '${model.family}' already selected`);
+  if (task.requireLocal && !model.local) reasons.push("local-only task");
+  if (task.privacySensitive && !model.local) reasons.push("privacy-sensitive task requires local model");
+  if (task.allowRemote === false && !model.local) reasons.push("remote models are disallowed");
+  if (task.privateCode && !model.privacy.privateCodeAllowed) reasons.push("private code is not approved for this model");
+  if (task.allowedFamilies && !task.allowedFamilies.includes(model.family)) reasons.push("model family is not allowed");
+  if (task.allowedProviders && !task.allowedProviders.includes(model.provider)) reasons.push("provider is not allowed");
+  if (task.requiresTools && !model.capabilities.tools) reasons.push("required tools unavailable");
+  if (options.requireWrite && !model.capabilities.writeSafe) reasons.push("isolated write capability unavailable");
+  if (task.contextRequirement === "huge" && !model.capabilities.hugeContext) reasons.push("huge context unavailable");
+  if (declaredRoleScore === undefined) reasons.push(`no declared score for role '${task.role}'`);
+  else if (roleScore < minimumRole) reasons.push(`role score ${roleScore} below minimum ${minimumRole}`);
+  try { selectEffort(config, model, task); } catch (error) { reasons.push(error instanceof Error ? error.message : String(error)); }
+  const estimatedCost = estimateCost(model);
+  if (config.policy.budget.mode === "capped" && estimatedCost > config.policy.budget.max_estimated_cost_usd) reasons.push(`estimated cost $${estimatedCost.toFixed(4)} exceeds cap`);
+  return reasons;
 }
 
 /** Select the smallest suitable quality tier before comparing role priors. */

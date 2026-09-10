@@ -3,7 +3,7 @@ import { compactTaskPrompt } from "../contracts.js";
 import { configuredModel } from "../routing/runtime.js";
 import { preflightModel } from "../readiness.js";
 import { selectEffort } from "../routing/effort.js";
-import { selectModel } from "../routing/selector.js";
+import { selectModel, selectionRejections, summarizeRejections } from "../routing/selector.js";
 import { requiredFamilies } from "../routing/diversity.js";
 import { writeRunLog } from "../telemetry/run-log.js";
 import { stateDirectoryFor } from "../state.js";
@@ -41,7 +41,10 @@ export async function runSingle(
     failedPreflights.add(candidate.id);
     selection = selectModel(config, profile, {}, options.excludedFamilies, { ...selectionOptions, excludedModels: failedPreflights });
   }
-  if (!selection || !model) throw new Error(`No eligible live model: ${preflightReason ?? "constraints cannot be safely satisfied"}`);
+  if (!selection || !model) {
+    const rejected = selectionRejections(config, profile, {}, { ...selectionOptions, ...(failedPreflights.size ? { excludedModels: failedPreflights } : {}) }, options.excludedFamilies);
+    throw new Error(`No eligible live model: ${preflightReason ?? summarizeRejections(rejected)}`);
+  }
   if (options.signal?.aborted) throw new DOMException("aborted", "AbortError");
   const baselineEffort = selectEffort(config, model, profile);
   const effort = options.effort ? { requested: options.effort, effective: model.efforts.includes(options.effort) ? options.effort : baselineEffort.effective } : baselineEffort;

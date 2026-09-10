@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseConfig } from "../src/config.js";
 import { selectEffort } from "../src/routing/effort.js";
-import { eligibleSelections, selectModel } from "../src/routing/selector.js";
+import { eligibleSelections, selectModel, selectionRejections, summarizeRejections } from "../src/routing/selector.js";
 import { runFanout } from "../src/strategies/fanout.js";
 import { runSingle } from "../src/strategies/single.js";
 import type { Provider, TaskProfile, WorkerRequest } from "../src/types.js";
@@ -122,6 +122,25 @@ describe("routing policy", () => {
   });
   it("fails closed for privacy-sensitive work when no local model is available", () => {
     expect(selectModel(config, profile({ privacySensitive: true }), { "qwen-local": false })).toBeUndefined();
+  });
+  it("rejects models with no declared score for the task role instead of selecting them with NaN scores", () => {
+    const partial = structuredClone(config);
+    delete partial.models.find((model) => model.id === "codex-build")!.roles.reviewer;
+    const selection = selectModel(partial, profile());
+    expect(selection?.model).toBe("claude-review");
+    expect(selection?.explanation.rejected["codex-build"]).toContain("no declared score for role 'reviewer'");
+  });
+  it("surfaces per-model rejection reasons even when no model is eligible", () => {
+    const rejected = selectionRejections(config, profile({ privacySensitive: true }), { "qwen-local": false });
+    expect(rejected["qwen-local"]).toContain("provider unavailable");
+    expect(rejected["claude-review"]).toContain("privacy-sensitive task requires local model");
+    expect(rejected["codex-build"]).toContain("privacy-sensitive task requires local model");
+  });
+  it("summarizes rejected models without truncation wreckage", () => {
+    const compatible = selectionRejections(config, profile({ role: "log-analysis", requireLocal: true }), { "qwen-local": false });
+    expect(summarizeRejections(compatible)).toContain("qwen-local (provider unavailable)");
+    expect(summarizeRejections(compatible)).toContain("claude-review (local-only task)");
+    expect(summarizeRejections({})).toBe("constraints cannot be safely satisfied");
   });
 });
 

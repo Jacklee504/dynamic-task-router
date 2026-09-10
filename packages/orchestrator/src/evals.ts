@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { parse } from "yaml";
 import type { RouterConfig } from "./config.js";
 import { effortIndex, selectEffort } from "./routing/effort.js";
-import { eligibleSelections, selectModel } from "./routing/selector.js";
+import { eligibleSelections, selectModel, selectionRejections } from "./routing/selector.js";
 import type { Effort, ProviderId, TaskProfile, WorkerRole } from "./types.js";
 
 type EvalCase = {
@@ -52,7 +52,7 @@ export function evaluateCase(config: RouterConfig, item: EvalCase): { id: string
     requiresTools: item.requires_tools ?? false,
   };
   const availability = Object.fromEntries(config.models.map((model) => [model.id, model.enabled])); const selection = selectModel(config, profile, availability);
-  if (!selection) return { id: item.id, pass: false, reasons: ["no eligible model"] };
+  if (!selection) return { id: item.id, pass: false, reasons: Object.entries(selectionRejections(config, profile, availability)).map(([id, reasons]) => `${id}: ${reasons.join("; ")}`) };
   const model = config.models.find((candidate) => candidate.id === selection.model)!; const effort = selectEffort(config, model, profile); const reasons: string[] = [];
   if (item.expect.minimum_effort && effortIndex(effort.effective) < effortIndex(item.expect.minimum_effort)) reasons.push("below minimum effort");
   if (item.expect.local && !model.local) reasons.push("selected model is not local");
