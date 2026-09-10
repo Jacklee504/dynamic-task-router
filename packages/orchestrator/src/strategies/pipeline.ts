@@ -83,7 +83,7 @@ async function runStage(
     const worktree = await createWorktree(cwd, runId, stage.id);
     const run = await runSingle(".", config, providers, stagePrompt, worktree.worktree, stageProfile, { writeBoundary: boundary, excludedFamilies, stateRoot, ...(signal ? { signal } : {}), ...(lifecycle ? { lifecycle, workerId: stage.id } : {}) });
     if (!run.result.success) throw new Error(run.result.error ?? `Write stage '${stage.id}' failed`);
-    const verification = await verifyWriteBoundary(worktree.worktree, boundary);
+    const verification = await verifyWriteBoundary(worktree.worktree, boundary, worktree.initialHead);
     return { id: stage.id, model: run.routing.selectedModel, output: compact(run), verification };
   }
   if (stage.strategy === "fanout") {

@@ -5,6 +5,8 @@ export interface WorktreeHandle {
   worktree: string;
   runId: string;
   workerId: string;
+  /** Immutable starting commit; used to reject worker-created commits. */
+  initialHead: string;
 }
 
 export interface WriteVerification {

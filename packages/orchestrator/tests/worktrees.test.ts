@@ -44,4 +44,15 @@ describe("isolated worktrees", () => {
     await expect(verifyWriteBoundary(handle.worktree, { allowedPaths: ["src"] })).resolves.toMatchObject({ changedPaths: ["src/worker.ts"], checks: [{ command: "git diff --check", success: true }] });
     await writeFile(join(root, "README.md"), "dirty\n"); await expect(assertCleanGitRepository(root)).rejects.toThrow("uncommitted changes");
   });
+  it("rejects deletions and worker-created commits", async () => {
+    const root = await repository(); const deleted = await createWorktree(root, "run-6", "implement");
+    await exec("rm", [join(deleted.worktree, "README.md")]);
+    await expect(verifyWriteBoundary(deleted.worktree, { allowedPaths: ["README.md"] }, deleted.initialHead)).rejects.toThrow("file deletion");
+
+    const committed = await createWorktree(root, "run-7", "implement");
+    await writeFile(join(committed.worktree, "README.md"), "changed\n");
+    await exec("git", ["-C", committed.worktree, "add", "README.md"]);
+    await exec("git", ["-C", committed.worktree, "commit", "-m", "not allowed"]);
+    await expect(verifyWriteBoundary(committed.worktree, { allowedPaths: ["README.md"] }, committed.initialHead)).rejects.toThrow("Git commit");
+  });
 });

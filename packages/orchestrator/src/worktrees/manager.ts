@@ -27,13 +27,20 @@ export async function createWorktree(repo: string, runId: string, workerId: stri
   const branch = `dtr/${runId}-${workerId}`;
   await mkdir(resolve(worktree, ".."), { recursive: true, mode: 0o700 });
   await git(repo, ["worktree", "add", "-b", branch, worktree, "HEAD"]);
-  return { branch, worktree, runId, workerId };
+  return { branch, worktree, runId, workerId, initialHead: (await git(worktree, ["rev-parse", "HEAD"])).trim() };
 }
 
-export async function verifyWriteBoundary(worktree: string, boundary: WriteBoundary): Promise<WriteVerification> {
+/** Reject out-of-scope changes, deletions, and worker-created commits. */
+export async function verifyWriteBoundary(worktree: string, boundary: WriteBoundary, initialHead?: string): Promise<WriteVerification> {
   assertSafeBoundary(boundary);
+  if (initialHead && (await git(worktree, ["rev-parse", "HEAD"])).trim() !== initialHead) {
+    throw new Error("Write restriction violation: worker created or changed a Git commit");
+  }
   const porcelain = await git(worktree, ["status", "--porcelain", "-z"]);
-  const tracked = porcelain.split("\0").filter(Boolean).filter((entry) => !entry.startsWith("?? ")).map((entry) => entry.slice(3).replace(/^.* -> /, ""));
+  const entries = porcelain.split("\0").filter(Boolean);
+  const destructive = entries.filter((entry) => /[DR]/.test(entry.slice(0, 2))).map((entry) => entry.slice(3).replace(/^.* -> /, ""));
+  if (destructive.length) throw new Error(`Write restriction violation: file deletion or rename is not allowed (${destructive.join(", ")})`);
+  const tracked = entries.filter((entry) => !entry.startsWith("?? ")).map((entry) => entry.slice(3).replace(/^.* -> /, ""));
   const untracked = (await git(worktree, ["ls-files", "--others", "--exclude-standard"])).split("\n").filter(Boolean);
   const changedPaths = [...new Set([...tracked, ...untracked])].sort();
   const outside = changedPaths.filter((path) => !isAllowed(path, boundary));
