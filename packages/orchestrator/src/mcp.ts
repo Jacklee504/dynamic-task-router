@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { realpathSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -29,6 +30,7 @@ const outcomeInput = {
   manualScore: z.number().min(0).max(1).optional(),
 };
 const configDir = resolve(dirname(fileURLToPath(import.meta.url)), "../../../config");
+const packageVersion = (() => { try { return (JSON.parse(readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), "../package.json"), "utf8")) as { version?: string }).version ?? "0.0.0"; } catch { return "0.0.0"; } })();
 
 function cwd(value: string | undefined): string { return value ? resolve(value) : process.cwd(); }
 function profile(input: z.infer<z.ZodObject<typeof profileInput>>) {
@@ -45,7 +47,7 @@ function text(value: unknown) { return { content: [{ type: "text" as const, text
 function error(reason: unknown) { return { content: [{ type: "text" as const, text: reason instanceof Error ? reason.message : String(reason) }], isError: true }; }
 
 export function createMcpServer(): McpServer {
-  const server = new McpServer({ name: "dynamic-task-router", version: "0.1.0" });
+  const server = new McpServer({ name: "dynamic-task-router", version: packageVersion });
   server.registerTool("dtr_health", { description: "Report configured provider and local-model availability.", inputSchema: {} }, async () => {
     try {
       const application = new DtrApplication(configDir); return text({ providers: await application.listProviders(), models: await application.listModels() });

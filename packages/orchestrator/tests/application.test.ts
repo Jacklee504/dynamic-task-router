@@ -66,13 +66,14 @@ async function scaffold(): Promise<{ configDir: string; cwd: string }> {
   return { configDir, cwd };
 }
 
-type ProviderScript = { output?: string; success?: boolean; error?: string; delayMs?: number };
+type ProviderScript = { output?: string; success?: boolean; error?: string; delayMs?: number; throwError?: string };
 function fakeProviders(script: Partial<Record<ProviderId, ProviderScript>> = {}): Record<ProviderId, Provider> {
   const build = (id: ProviderId): Provider => ({
     id,
     health: async () => true,
     run: async (request: WorkerRequest): Promise<WorkerResult> => {
       const spec = script[id] ?? {};
+      if (spec.throwError) throw new Error(spec.throwError);
       if (spec.delayMs) await new Promise<void>((resolve, reject) => {
         const timer = setTimeout(resolve, spec.delayMs);
         request.signal?.addEventListener("abort", () => { clearTimeout(timer); reject(new DOMException("aborted", "AbortError")); });
@@ -92,6 +93,14 @@ describe("application observability", () => {
   it("redacts provider-style credentials from UI-safe errors", () => {
     expect(safeError("OPENROUTER_API_KEY=secret Authorization: Bearer abc")).not.toContain("secret");
     expect(safeError("OPENROUTER_API_KEY=secret Authorization: Bearer abc")).not.toContain("abc");
+    expect(safeError("FEATHERLESS_API_KEY=secret")).not.toContain("secret");
+  });
+  it("resolves persisted runs by unambiguous id prefix", async () => {
+    const { configDir, cwd } = await scaffold();
+    const app = new DtrApplication(configDir, cwd, fakeProviders(), null);
+    const run = await app.run({ prompt: "Review one", role: "reviewer", cwd });
+    await expect(app.getRun(run.runId.slice(0, 8))).resolves.toMatchObject({ id: run.runId });
+    await expect(app.getRun("00000000-0000")).resolves.toBeNull();
   });
 });
 
@@ -186,6 +195,47 @@ describe("DtrApplication abort", () => {
     const { configDir, cwd } = await scaffold();
     const app = new DtrApplication(configDir, cwd, fakeProviders(), null);
     await expect(app.abort("does-not-exist")).resolves.toEqual({ runId: "does-not-exist", accepted: false, state: "unavailable" });
+  });
+});
+
+describe("DtrApplication failure record hygiene", () => {
+  it("marks the stage and record failed when a provider throws", async () => {
+    const { configDir, cwd } = await scaffold();
+    const app = new DtrApplication(configDir, cwd, fakeProviders({ claude: { throwError: "provider exploded" } }), null);
+    await expect(app.run({ prompt: "Review the src directory", role: "reviewer", cwd })).rejects.toThrow("provider exploded");
+    const runs = await app.listRuns();
+    expect(runs).toHaveLength(1);
+    expect(runs[0]?.state).toBe("failed");
+    expect(runs[0]?.stages[0]?.state).toBe("failed");
+  });
+
+  it("marks a fanout record failed when routing cannot satisfy the family requirement", async () => {
+    const { configDir, cwd } = await scaffold();
+    const app = new DtrApplication(configDir, cwd, fakeProviders(), null);
+    await expect(app.fanout({ prompt: "Review the src directory", role: "reviewer", cwd, families: 3 })).rejects.toThrow("Degraded routing");
+    const runs = await app.listRuns();
+    expect(runs).toHaveLength(1);
+    expect(runs[0]?.state).toBe("failed");
+    expect(runs[0]?.error).toContain("Degraded routing");
+  });
+
+  it("marks a pipeline record failed when the template is unknown", async () => {
+    const { configDir, cwd } = await scaffold();
+    const app = new DtrApplication(configDir, cwd, fakeProviders(), null);
+    await expect(app.pipeline({ prompt: "Review", role: "reviewer", cwd, template: "does-not-exist" })).rejects.toThrow("Unknown pipeline template");
+    const runs = await app.listRuns();
+    expect(runs).toHaveLength(1);
+    expect(runs[0]?.state).toBe("failed");
+    expect(runs[0]?.error).toContain("Unknown pipeline template");
+  });
+
+  it("skips corrupt run records instead of hiding all runs", async () => {
+    const { configDir, cwd } = await scaffold();
+    const app = new DtrApplication(configDir, cwd, fakeProviders(), null);
+    const run = await app.run({ prompt: "Review one", role: "reviewer", cwd });
+    await writeFile(join(stateDirectoryFor(cwd), "runs", "00000000-0000-0000-0000-0000000bad00.status.json"), "{not json", "utf8");
+    const listed = await app.listRuns();
+    expect(listed.map((record) => record.id)).toEqual([run.runId]);
   });
 });
 

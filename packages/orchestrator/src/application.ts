@@ -7,7 +7,7 @@ import { createProviders } from "./providers/index.js";
 import { classifyTask } from "./routing/classifier.js";
 import { selectEffort } from "./routing/effort.js";
 import { modelAvailability } from "./routing/runtime.js";
-import { selectModel } from "./routing/selector.js";
+import { selectModel, selectionRejections, summarizeRejections } from "./routing/selector.js";
 import { stateDirectoryFor } from "./state.js";
 import { summarizeRuns } from "./stats.js";
 import { summarizeUsage, type UsageReport } from "./telemetry/usage.js";
@@ -81,7 +81,7 @@ export class DtrApplication {
   async select(input: SelectionRequest) {
     const config = await this.config(); const profile = this.profile(input); const availability = await modelAvailability(config, this.providers);
     const selection = selectModel(config, profile, availability, new Set(), input.modelId ? { modelId: input.modelId } : {});
-    if (!selection) throw new Error("No eligible model: constraints cannot be safely satisfied");
+    if (!selection) throw new Error(`No eligible model: ${summarizeRejections(selectionRejections(config, profile, availability, input.modelId ? { modelId: input.modelId } : {}))}`);
     const model = config.models.find((candidate) => candidate.id === selection.model)!;
     const baseline = selectEffort(config, model, profile);
     const effort = input.effort ? { requested: input.effort, effective: model.efforts.includes(input.effort) ? input.effort : baseline.effective } : baseline;
@@ -121,6 +121,7 @@ export class DtrApplication {
       else this.emit({ type: "run-failed", runId: record.id, error: record.error ?? "Worker failed", timestamp: now() });
       return { runId: record.id, routing: run.routing, result: run.result };
     } catch (error) {
+      const stage = record.stages[0]; if (stage && stage.state === "running") stage.state = "failed";
       record.state = controller.signal.aborted ? "aborted" : "failed"; record.error = safeError(error); record.endedAt = now(); await writeRunRecord(stateRoot, record); if (controller.signal.aborted) this.emit({ type: "run-completed", runId: record.id, outcome: "aborted", timestamp: now() }); else this.emit({ type: "run-failed", runId: record.id, error: record.error, timestamp: now() }); throw error;
     } finally { this.active.delete(record.id); }
   }
@@ -131,6 +132,10 @@ export class DtrApplication {
     try {
       record.state = "running"; await writeRunRecord(stateRoot, record); const runs = await runFanout(this.configDir, config, this.providers, prompt, input.cwd, profile, input.families, controller.signal, stateRoot, lifecycle);
       record.state = runs.every((run) => run.result.success) ? "succeeded" : "failed"; record.endedAt = now(); record.stages = runs.map((run) => ({ id: run.model, model: run.model, state: run.result.success ? "succeeded" : "failed" })); await writeRunRecord(stateRoot, record); this.emit({ type: "run-completed", runId: record.id, outcome: record.state, timestamp: now() }); return runs.map((run) => ({ runId: record.id, model: run.model, result: run.result }));
+    } catch (error) {
+      record.state = controller.signal.aborted ? "aborted" : "failed"; record.error = safeError(error); record.endedAt = now(); await writeRunRecord(stateRoot, record);
+      if (controller.signal.aborted) this.emit({ type: "run-completed", runId: record.id, outcome: "aborted", timestamp: now() }); else this.emit({ type: "run-failed", runId: record.id, error: record.error, timestamp: now() });
+      throw error;
     } finally { this.active.delete(record.id); }
   }
 
@@ -143,6 +148,15 @@ export class DtrApplication {
       this.emit({ type: "run-completed", runId: record.id, outcome: result.record.state, timestamp: now() });
       return result;
     } catch (error) {
+      // runPipeline writes its own richer failure record for stage failures; only
+      // rewrite when the record never advanced past "queued" (for example, an
+      // unknown template id) so it cannot stay orphaned on disk.
+      let persisted: RunRecord | null = null;
+      try { persisted = await readRunRecord(stateRoot, record.id); } catch { persisted = null; }
+      if (!persisted || persisted.state === "queued") {
+        record.state = controller.signal.aborted ? "aborted" : "failed"; record.error = safeError(error); record.endedAt = now();
+        await writeRunRecord(stateRoot, record);
+      }
       this.emit({ type: "run-failed", runId: record.id, error: safeError(error), timestamp: now() });
       throw error;
     } finally { this.active.delete(record.id); }
@@ -156,16 +170,28 @@ export class DtrApplication {
     };
   }
   async abort(runId: string): Promise<AbortResult> { const controller = this.active.get(runId); if (!controller) return { runId, accepted: false, state: "unavailable" }; this.emit({ type: "run-aborting", runId, timestamp: now() }); controller.abort(); return { runId, accepted: true, state: "aborting" }; }
-  async getRun(runId: string): Promise<RunRecord | null> { try { return await readRunRecord(stateDirectoryFor(this.defaultCwd), runId); } catch { return null; } }
+  async getRun(runId: string): Promise<RunRecord | null> {
+    const stateRoot = stateDirectoryFor(this.defaultCwd);
+    try { return await readRunRecord(stateRoot, runId); } catch { /* fall through to prefix resolution */ }
+    // The UI displays id prefixes, so accept an unambiguous run-id prefix.
+    const prefix = runId.toLowerCase();
+    if (!/^[a-f0-9][a-f0-9-]*$/.test(prefix)) return null;
+    try {
+      const entries = (await readdir(resolve(stateRoot, "runs"))).map((entry) => entry.replace(/\.status\.json$/, ""));
+      const matches = entries.filter((entry) => entry.toLowerCase().startsWith(prefix));
+      if (matches.length !== 1) return null;
+      return await readRunRecord(stateRoot, matches[0]!);
+    } catch { return null; }
+  }
   async outcome(runId: string, outcome: NonNullable<RunRecord["outcome"]>): Promise<RunRecord> { return attachRunOutcome(stateDirectoryFor(this.defaultCwd), runId, outcome); }
-  async listRuns(limit = 30): Promise<RunRecord[]> { const stateRoot = stateDirectoryFor(this.defaultCwd); try { const entries = (await readdir(resolve(stateRoot, "runs"))).filter((entry) => entry.endsWith(".status.json")).sort().reverse().slice(0, limit); return Promise.all(entries.map((entry) => readRunRecord(stateRoot, entry.replace(".status.json", "")))); } catch { return []; } }
+  async listRuns(limit = 30): Promise<RunRecord[]> { const stateRoot = stateDirectoryFor(this.defaultCwd); try { const entries = (await readdir(resolve(stateRoot, "runs"))).filter((entry) => entry.endsWith(".status.json")).sort().reverse().slice(0, limit); const records = await Promise.all(entries.map(async (entry) => { try { return await readRunRecord(stateRoot, entry.replace(".status.json", "")); } catch { return null; } })); return records.filter((record): record is RunRecord => record !== null); } catch { return []; } }
   async stats() { return summarizeRuns(stateDirectoryFor(this.defaultCwd)); }
   async usage(): Promise<UsageReport> { return summarizeUsage(stateDirectoryFor(this.defaultCwd)); }
 }
 
 function now(): string { return new Date().toISOString(); }
 function safeTask(value: string): string { return value.replace(/\s+/g, " ").trim().slice(0, 160); }
-export function safeError(error: unknown): string { return String(error instanceof Error ? error.message : error).replace(/(?:ANTHROPIC|OPENAI|OPENROUTER)_API_KEY\s*=\s*\S+/gi, "[redacted]").replace(/Authorization:\s*Bearer\s+\S+/gi, "Authorization: [redacted]").slice(0, 400); }
+export function safeError(error: unknown): string { return String(error instanceof Error ? error.message : error).replace(/(?:ANTHROPIC|OPENAI|OPENROUTER|FEATHERLESS)_API_KEY\s*=\s*\S+/gi, "[redacted]").replace(/Authorization:\s*Bearer\s+\S+/gi, "Authorization: [redacted]").slice(0, 400); }
 export async function readOllamaRuntime(fetcher: typeof fetch = fetch): Promise<OllamaRuntime> {
   const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 1_500);
   try {
