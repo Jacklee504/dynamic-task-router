@@ -11,6 +11,9 @@ export const MAX_RELEVANT_FILE_CHARS = 256;
 export const MAX_TASK_INPUT_CHARS = 6_000;
 export const MAX_TASK_RESULT_CHARS = 1_200;
 
+/** Baseline restrictions for every routed worker. */
+export const EXECUTION_RESTRICTIONS = "SAFETY: Do not run rm/rmdir/unlink or recursive deletion; do not commit, push, reset, clean, checkout, merge, or rebase Git; do not change secrets, auth, global config, dependencies, or use network installs. Edit only when DTR grants a write scope; never delete or rename files.";
+
 export const DISPATCH_CONTRACT = [
   "DTR dispatch contract v1",
   `1. Send one task of at most ${MAX_COMPACT_TASK_WORDS} words.`,
@@ -79,6 +82,7 @@ export function compactTaskPrompt(prompt: string, policy?: PromptPolicy, target?
   const composed = [
     normalized,
     additions.length ? `Provider instructions:\n${additions.map((instruction) => `- ${instruction.trim()}`).join("\n")}` : "",
+    EXECUTION_RESTRICTIONS,
     "Return only this concise handoff (120 words maximum): STATUS; PATHS; CHECK; RISK. Do not include a prose preamble, rationale, transcript, or raw log.",
   ].filter(Boolean).join("\n\n");
   if (policy && target) assertTokenBudget(composed, policy, target);

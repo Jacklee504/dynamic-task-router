@@ -17,5 +17,7 @@ no `.dtr` or untracked working-tree files are created in the target repository.
 
 After the worker, DTR records changed paths and runs `git diff --check`. Any
 path outside the declared scope fails the run and the worktree remains as
-evidence. DTR never auto-merges, force-resets the base checkout, removes a
-user worktree, or deletes an unsafe worktree automatically.
+evidence. DTR also rejects file deletion/renames and a changed worktree `HEAD`,
+so a worker cannot commit its own result. DTR never auto-merges, force-resets
+the base checkout, removes a user worktree, or deletes an unsafe worktree
+automatically.

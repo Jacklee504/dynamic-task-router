@@ -81,11 +81,13 @@ describe("bounded task contracts", () => {
     expect(() => normalizeRelevantFiles("../secret.txt")).toThrow("relative path");
   });
   it("accounts for provider additions and reserved context before dispatch", () => {
-    const policy = { charsPerToken: 4, maxInputTokens: 80, responseReserveTokens: 0, hostContextReserveTokens: { claude: 0 }, providers: { claude: { append: ["Follow CLAUDE.md when present."] } } };
-    const target = { provider: "claude" as const, model: "test", contextTokens: 64 };
-    expect(compactTaskPrompt("Review the parser", policy, target)).toContain("Follow CLAUDE.md when present.");
-    expect(() => compactTaskPrompt("x".repeat(300), policy, target)).toThrow("64-token budget");
-    expect(() => compactTaskPrompt("Review", { ...policy, responseReserveTokens: 64 }, target)).toThrow("exhausted");
+    const policy = { charsPerToken: 4, maxInputTokens: 160, responseReserveTokens: 0, hostContextReserveTokens: { claude: 0 }, providers: { claude: { append: ["Follow CLAUDE.md when present."] } } };
+    const target = { provider: "claude" as const, model: "test", contextTokens: 160 };
+    const prompt = compactTaskPrompt("Review the parser", policy, target);
+    expect(prompt).toContain("Follow CLAUDE.md when present.");
+    expect(prompt).toContain("Do not run rm/rmdir/unlink");
+    expect(() => compactTaskPrompt("x".repeat(700), policy, target)).toThrow("160-token budget");
+    expect(() => compactTaskPrompt("Review", { ...policy, responseReserveTokens: 160 }, target)).toThrow("exhausted");
   });
 });
 
