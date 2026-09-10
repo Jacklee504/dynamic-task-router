@@ -132,9 +132,29 @@ describe("provider usage normalization", () => {
     expect(result).toMatchObject({ output: "compact finding", usage: { source: "provider-reported", inputTokens: 12, outputTokens: 5, totalTokens: 17, costUsd: 0.004 } });
   });
 
+  it("reports failure when Claude flags is_error with a zero exit code", () => {
+    const result = resultFromProcess("claude", request, Date.now(), { stdout: JSON.stringify({ result: "Permission denied during execution", is_error: true }), stderr: "", exitCode: 0, timedOut: false });
+    expect(result).toMatchObject({ success: false, error: "Permission denied during execution" });
+  });
+
   it("extracts a final Codex message and token usage from JSONL", () => {
     const result = resultFromProcess("codex", request, Date.now(), { stdout: `${JSON.stringify({ type: "thread.started" })}\n${JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "compact finding" } })}\n${JSON.stringify({ type: "turn.completed", usage: { input_tokens: 20, cached_input_tokens: 4, output_tokens: 8 } })}`, stderr: "", exitCode: 0, timedOut: false });
     expect(result).toMatchObject({ output: "compact finding", usage: { source: "provider-reported", inputTokens: 20, cachedInputTokens: 4, outputTokens: 8, totalTokens: 28 } });
+  });
+
+  it("captures Codex reasoning tokens reported as reasoning_output_tokens", () => {
+    const result = resultFromProcess("codex", request, Date.now(), { stdout: `${JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "compact finding" } })}\n${JSON.stringify({ type: "turn.completed", usage: { input_tokens: 20, output_tokens: 8, reasoning_output_tokens: 6 } })}`, stderr: "", exitCode: 0, timedOut: false });
+    expect(result).toMatchObject({ usage: { reasoningTokens: 6 } });
+  });
+
+  it("extracts OpenCode message text and step-finish token usage from part payloads", () => {
+    const result = resultFromProcess("opencode", request, Date.now(), { stdout: `${JSON.stringify({ type: "message.part", part: { type: "text", text: "compact finding" } })}\n${JSON.stringify({ type: "step-finish", part: { type: "step-finish", tokens: { input: 30, output: 10, reasoning: 5, total: 45, cost: 0.002 } } })}`, stderr: "", exitCode: 0, timedOut: false });
+    expect(result).toMatchObject({ output: "compact finding", usage: { source: "provider-reported", inputTokens: 30, outputTokens: 10, reasoningTokens: 5, totalTokens: 45, costUsd: 0.002 } });
+  });
+
+  it("extracts OpenCode token usage when tokens are reported at the event top level", () => {
+    const result = resultFromProcess("opencode", request, Date.now(), { stdout: `${JSON.stringify({ type: "step-finish", tokens: { input: 7, output: 3, total: 10 } })}`, stderr: "", exitCode: 0, timedOut: false });
+    expect(result).toMatchObject({ usage: { inputTokens: 7, outputTokens: 3, totalTokens: 10 } });
   });
 });
 

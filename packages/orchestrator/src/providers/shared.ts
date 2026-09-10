@@ -29,10 +29,11 @@ export function resultFromProcess(
   startedAt: number,
   process: { stdout: string; stderr: string; exitCode: number | null; timedOut: boolean; error?: string },
 ): WorkerResult {
-  const error = process.timedOut
+  const processError = process.timedOut
     ? "Worker timed out"
     : process.error ?? (process.exitCode === 0 ? undefined : process.stderr.trim() || `Process exited with ${process.exitCode}`);
   const parsed = parseProviderOutput(provider, process.stdout);
+  const error = processError ?? parsed.error;
   return {
     provider,
     model: request.model,
@@ -46,7 +47,7 @@ export function resultFromProcess(
   };
 }
 
-function parseProviderOutput(provider: WorkerResult["provider"], stdout: string): { output: string; usage?: TokenUsage } {
+function parseProviderOutput(provider: WorkerResult["provider"], stdout: string): { output: string; usage?: TokenUsage; error?: string } {
   if (provider === "claude") return parseClaudeOutput(stdout);
   if (provider === "codex" || provider === "ollama") return parseCodexEvents(stdout);
   if (provider === "antigravity") return parseAntigravityOutput(stdout);
@@ -58,8 +59,16 @@ function parseOpenCodeEvents(stdout: string): { output: string; usage?: TokenUsa
   const events = stdout.split("\n").map(parseJson).filter(isRecord);
   if (!events.length) return { output: stdout };
   const messages = events.flatMap((event) => openCodeText(event));
-  const final = [...events].reverse().map((event) => usageFrom(event.usage ?? event.tokens)).find((usage): usage is TokenUsage => Boolean(usage));
+  const final = [...events].reverse().map(openCodeUsage).find((usage): usage is TokenUsage => Boolean(usage));
   return { output: messages.at(-1) ?? stdout, ...(final ? { usage: final } : {}) };
+}
+
+/** OpenCode reports cumulative tokens on step-finish events, either top-level or inside the part payload. */
+function openCodeUsage(event: Record<string, unknown>): TokenUsage | undefined {
+  const part = isRecord(event.part) ? event.part : undefined;
+  const record = isRecord(event.usage) ? event.usage : isRecord(event.tokens) ? event.tokens : isRecord(part?.tokens) ? part.tokens : undefined;
+  if (!record) return undefined;
+  return usageFrom(record, numberAt(record, "cost"));
 }
 
 function openCodeText(event: Record<string, unknown>): string[] {
@@ -82,12 +91,13 @@ function parseAntigravityOutput(stdout: string): { output: string; usage?: Token
   return { output, ...(usage ? { usage } : {}) };
 }
 
-function parseClaudeOutput(stdout: string): { output: string; usage?: TokenUsage } {
+function parseClaudeOutput(stdout: string): { output: string; usage?: TokenUsage; error?: string } {
   const value = parseJson(stdout);
   if (!isRecord(value)) return { output: stdout };
   const output = typeof value.result === "string" ? value.result : stdout;
   const usage = usageFrom(value.usage, numberAt(value, "total_cost_usd"));
-  return { output, ...(usage ? { usage } : {}) };
+  // Claude CLI can exit 0 while reporting a blocked or errored turn in JSON.
+  return { output, ...(usage ? { usage } : {}), ...(value.is_error === true ? { error: output } : {}) };
 }
 
 function parseCodexEvents(stdout: string): { output: string; usage?: TokenUsage } {
@@ -103,11 +113,14 @@ function parseCodexEvents(stdout: string): { output: string; usage?: TokenUsage 
 
 function usageFrom(value: unknown, costUsd?: number): TokenUsage | undefined {
   if (!isRecord(value)) return undefined;
-  const inputTokens = numberAt(value, "input_tokens", "inputTokens");
+  // Key spellings seen in the wild: claude uses snake_case, opencode uses
+  // bare words (`input`, `output`, `total`, `reasoning`), codex reports
+  // reasoning as `reasoning_output_tokens`.
+  const inputTokens = numberAt(value, "input_tokens", "inputTokens", "input");
   const cachedInputTokens = numberAt(value, "cached_input_tokens", "cachedInputTokens", "cache_read_input_tokens");
-  const outputTokens = numberAt(value, "output_tokens", "outputTokens");
-  const reasoningTokens = numberAt(value, "reasoning_tokens", "reasoningTokens");
-  const totalTokens = numberAt(value, "total_tokens", "totalTokens") ?? (inputTokens !== undefined && outputTokens !== undefined ? inputTokens + outputTokens : undefined);
+  const outputTokens = numberAt(value, "output_tokens", "outputTokens", "output");
+  const reasoningTokens = numberAt(value, "reasoning_tokens", "reasoningTokens", "reasoning_output_tokens", "reasoning");
+  const totalTokens = numberAt(value, "total_tokens", "totalTokens", "total") ?? (inputTokens !== undefined && outputTokens !== undefined ? inputTokens + outputTokens : undefined);
   if ([inputTokens, cachedInputTokens, outputTokens, reasoningTokens, totalTokens, costUsd].every((item) => item === undefined)) return undefined;
   return { source: "provider-reported", ...(inputTokens !== undefined ? { inputTokens } : {}), ...(cachedInputTokens !== undefined ? { cachedInputTokens } : {}), ...(outputTokens !== undefined ? { outputTokens } : {}), ...(reasoningTokens !== undefined ? { reasoningTokens } : {}), ...(totalTokens !== undefined ? { totalTokens } : {}), ...(costUsd !== undefined ? { costUsd } : {}) };
 }
@@ -124,4 +137,13 @@ export function ensureReadOnly(request: WorkerRequest): void {
 
 export function helpCommand(command: string): Command {
   return { command, args: ["--help"] };
+}
+
+/**
+ * CLIs print help to either stream (for example `agy` and `opencode` write
+ * help to stderr), so capability checks must inspect both.
+ */
+export function missingHelpFlags(help: { stdout: string; stderr: string }, requiredFlags: string[]): string[] {
+  const text = `${help.stdout}\n${help.stderr}`;
+  return requiredFlags.filter((flag) => !text.includes(flag));
 }

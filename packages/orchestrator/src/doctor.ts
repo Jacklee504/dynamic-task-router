@@ -1,7 +1,7 @@
 import type { ModelConfig } from "./config.js";
 import { antigravityCommandCandidates } from "./providers/antigravity.js";
 import { openCodeCommandCandidates } from "./providers/opencode.js";
-import { codexCommandCandidates } from "./providers/shared.js";
+import { codexCommandCandidates, missingHelpFlags } from "./providers/shared.js";
 import type { ProcessRunner } from "./types.js";
 
 type Check = { command: string; installed: boolean; authenticated?: boolean; safe?: boolean; missingFlags?: string[]; version?: string };
@@ -49,8 +49,8 @@ async function diagnoseOpenCode(runner: ProcessRunner, cwd: string): Promise<{ r
       runner.run({ command, args: ["run", "--help"] }, { cwd, timeoutMs }),
       runner.run({ command, args: ["models"] }, { cwd, timeoutMs: 10_000 }),
     ]);
-    const required = ["--model", "--format", "--dir"];
-    const missingFlags = required.filter((flag) => !help.stdout.includes(flag));
+    const required = ["--model", "--variant", "--format", "--dir"];
+    const missingFlags = missingHelpFlags(help, required);
     const authenticated = models.exitCode === 0 && models.stdout.split("\n").some((line) => /^\s*[^\s/]+\/[^\s]+/.test(line));
     return { ...version, authenticated, safe: help.exitCode === 0 && missingFlags.length === 0, ...(missingFlags.length ? { missingFlags } : {}) };
   }));
@@ -66,7 +66,7 @@ async function diagnoseAntigravity(runner: ProcessRunner, cwd: string): Promise<
       runner.run({ command, args: ["models"] }, { cwd, timeoutMs: 10_000 }),
     ]);
     const required = ["--model", "--output-format", "--sandbox"];
-    const missingFlags = required.filter((flag) => !help.stdout.includes(flag));
+    const missingFlags = missingHelpFlags(help, required);
     const authenticated = models.exitCode === 0 && models.stdout.split("\n").some((line) => Boolean(line.trim().split(/\s+/)[0]));
     return { ...version, authenticated, safe: help.exitCode === 0 && missingFlags.length === 0, ...(missingFlags.length ? { missingFlags } : {}) };
   }));
@@ -81,8 +81,8 @@ async function diagnoseCodex(runner: ProcessRunner, cwd: string): Promise<{ read
       runner.run({ command, args: ["login", "status"] }, { cwd, timeoutMs }),
       runner.run({ command, args: ["exec", "--help"] }, { cwd, timeoutMs }),
     ]);
-    const required = ["--sandbox", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--json"];
-    const missingFlags = required.filter((flag) => !help.stdout.includes(flag));
+    const required = ["--cd", "--skip-git-repo-check", "--model", "--sandbox", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--json"];
+    const missingFlags = missingHelpFlags(help, required);
     return { ...version, authenticated: login.exitCode === 0, safe: help.exitCode === 0 && missingFlags.length === 0, ...(missingFlags.length ? { missingFlags } : {}) };
   }));
   return { ready: candidates.some((candidate) => candidate.installed && candidate.authenticated && candidate.safe), candidates };
@@ -95,7 +95,7 @@ async function diagnoseClaude(runner: ProcessRunner, cwd: string): Promise<Check
     runner.run({ command: "claude", args: ["auth", "status"] }, { cwd, timeoutMs }),
     runner.run({ command: "claude", args: ["--help"] }, { cwd, timeoutMs }),
   ]);
-  const missingFlags = ["--permission-mode"].filter((flag) => !help.stdout.includes(flag));
+  const missingFlags = missingHelpFlags(help, ["--permission-mode", "--max-turns"]);
   return { ...version, authenticated: auth.exitCode === 0, safe: help.exitCode === 0 && missingFlags.length === 0, ...(missingFlags.length ? { missingFlags } : {}) };
 }
 

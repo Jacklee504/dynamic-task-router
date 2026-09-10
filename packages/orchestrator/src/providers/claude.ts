@@ -1,5 +1,5 @@
 import type { Command, ProcessRunner, Provider, WorkerRequest, WorkerResult } from "../types.js";
-import { commandAvailable, ensureReadOnly, helpCommand, resultFromProcess } from "./shared.js";
+import { commandAvailable, ensureReadOnly, helpCommand, missingHelpFlags, resultFromProcess } from "./shared.js";
 
 export function createClaudeCommand(request: WorkerRequest): Command {
   if (request.readOnly) ensureReadOnly(request);
@@ -13,6 +13,9 @@ export function createClaudeCommand(request: WorkerRequest): Command {
       request.model,
       "--effort",
       request.effort,
+      // Bound turns so a looping worker cannot burn the whole wall-clock timeout.
+      "--max-turns",
+      "80",
       "--output-format",
       "json",
       "--permission-mode",
@@ -40,7 +43,7 @@ export class ClaudeProvider implements Provider {
   async run(request: WorkerRequest): Promise<WorkerResult> {
     if (request.readOnly) ensureReadOnly(request);
     const help = await this.runner.run(helpCommand("claude"), { cwd: request.cwd, timeoutMs: 5_000 });
-    if (help.exitCode !== 0 || !help.stdout.includes("--permission-mode")) {
+    if (help.exitCode !== 0 || missingHelpFlags(help, ["--permission-mode", "--max-turns"]).length > 0) {
       return unsupportedResult(request, `Claude CLI lacks --permission-mode ${request.readOnly ? "plan" : "acceptEdits"}; refusing to run without required read-only enforcement or write isolation.`);
     }
     const startedAt = Date.now();

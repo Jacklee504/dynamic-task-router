@@ -1,5 +1,5 @@
 import type { Command, ProcessRunner, Provider, WorkerRequest, WorkerResult } from "../types.js";
-import { commandAvailable, resultFromProcess } from "./shared.js";
+import { commandAvailable, missingHelpFlags, resultFromProcess } from "./shared.js";
 
 /**
  * Google Antigravity is an account-backed local CLI, not a Gemini API adapter.
@@ -15,9 +15,10 @@ export function createAntigravityCommand(request: WorkerRequest, executable = "a
   const advisory = request.readOnly
     ? "Read-only advisory task: inspect only. Do not edit, create, delete, stage, commit, or run destructive commands. Return the compact handoff."
     : "Work only inside the declared boundary and return the compact handoff.";
+  const timeoutMinutes = Math.max(1, Math.ceil((request.timeoutMs ?? 600_000) / 60_000));
   return {
     command: executable,
-    args: ["-p", `${advisory}\n\n${request.prompt}`, "--model", request.model, "--output-format", "json", "--print-timeout", "10m", "--sandbox"],
+    args: ["-p", `${advisory}\n\n${request.prompt}`, "--model", request.model, "--output-format", "json", "--print-timeout", `${timeoutMinutes}m`, "--sandbox"],
   };
 }
 
@@ -44,8 +45,8 @@ export class AntigravityProvider implements Provider {
     const executable = await resolveAntigravityCommand(this.runner, request.cwd);
     if (!executable) return unsupported(request, "Antigravity CLI is unavailable. Start `agy` once to sign in, then ensure `agy` is on PATH or set DTR_ANTIGRAVITY_COMMAND.");
     const help = await this.runner.run({ command: executable, args: ["--help"] }, { cwd: request.cwd, timeoutMs: 5_000 });
-    const requiredFlags = ["--model", "--output-format", "--sandbox"];
-    if (help.exitCode !== 0 || requiredFlags.some((flag) => !help.stdout.includes(flag))) {
+    const requiredFlags = ["--model", "--output-format", "--print-timeout", "--sandbox"];
+    if (help.exitCode !== 0 || missingHelpFlags(help, requiredFlags).length > 0) {
       return unsupported(request, "Antigravity CLI lacks a required isolated headless option; refusing to run.");
     }
     const startedAt = Date.now();

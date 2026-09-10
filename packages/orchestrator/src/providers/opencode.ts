@@ -1,5 +1,5 @@
 import type { Command, ProcessRunner, Provider, WorkerRequest, WorkerResult } from "../types.js";
-import { commandAvailable, resultFromProcess } from "./shared.js";
+import { commandAvailable, missingHelpFlags, resultFromProcess } from "./shared.js";
 
 /**
  * OpenCode owns its configured providers and credentials. DTR deliberately
@@ -18,8 +18,9 @@ export function createOpenCodeCommand(request: WorkerRequest, executable = "open
   return {
     command: executable,
     // Do not use --auto, --file, --continue, or a shared session. The model is
-    // the exact provider/model name reported by `opencode models`.
-    args: ["run", "--model", request.model, "--format", "json", "--dir", request.cwd, `${advisory}\n\n${request.prompt}`],
+    // the exact provider/model name reported by `opencode models`; --variant is
+    // the provider-specific reasoning-effort selector.
+    args: ["run", "--model", request.model, "--variant", request.effort, "--format", "json", "--dir", request.cwd, `${advisory}\n\n${request.prompt}`],
   };
 }
 
@@ -46,8 +47,8 @@ export class OpenCodeProvider implements Provider {
     const executable = await resolveOpenCodeCommand(this.runner, request.cwd);
     if (!executable) return unsupported(request, "OpenCode CLI is unavailable. Install and configure OpenCode, then ensure `opencode` is on PATH or set DTR_OPENCODE_COMMAND.");
     const help = await this.runner.run({ command: executable, args: ["run", "--help"] }, { cwd: request.cwd, timeoutMs: 5_000 });
-    const requiredFlags = ["--model", "--format", "--dir"];
-    if (help.exitCode !== 0 || requiredFlags.some((flag) => !help.stdout.includes(flag))) {
+    const requiredFlags = ["--model", "--variant", "--format", "--dir"];
+    if (help.exitCode !== 0 || missingHelpFlags(help, requiredFlags).length > 0) {
       return unsupported(request, "OpenCode CLI lacks a required headless option; refusing to run.");
     }
     const startedAt = Date.now();

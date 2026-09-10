@@ -1,5 +1,5 @@
 import type { Command, ProcessRunner, Provider, WorkerRequest, WorkerResult } from "../types.js";
-import { ensureReadOnly, resolveCodexCommand, resultFromProcess } from "./shared.js";
+import { ensureReadOnly, missingHelpFlags, resolveCodexCommand, resultFromProcess } from "./shared.js";
 
 export function createCodexCommand(request: WorkerRequest, executable = "codex"): Command {
   if (request.readOnly) ensureReadOnly(request);
@@ -10,6 +10,7 @@ export function createCodexCommand(request: WorkerRequest, executable = "codex")
       "exec",
       "--cd",
       request.cwd,
+      "--skip-git-repo-check",
       "--model",
       request.model,
       "--sandbox",
@@ -39,8 +40,8 @@ export class CodexProvider implements Provider {
     const executable = await resolveCodexCommand(this.runner, request.cwd, undefined, true);
     if (!executable) return unsupportedResult(request, "Codex CLI is unavailable or not authenticated; no fallback provider was selected.");
     const help = await this.runner.run({ command: executable, args: ["exec", "--help"] }, { cwd: request.cwd, timeoutMs: 5_000 });
-    const requiredFlags = ["--sandbox", "--ephemeral", "--ignore-user-config", "--json"];
-    if (help.exitCode !== 0 || requiredFlags.some((flag) => !help.stdout.includes(flag))) {
+    const requiredFlags = ["--cd", "--skip-git-repo-check", "--model", "--sandbox", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--json"];
+    if (help.exitCode !== 0 || missingHelpFlags(help, requiredFlags).length > 0) {
       return unsupportedResult(request, `Codex CLI lacks a required ${request.readOnly ? "read-only" : "workspace-write"} isolation option; refusing to run.`);
     }
     const startedAt = Date.now();

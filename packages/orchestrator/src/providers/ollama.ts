@@ -1,5 +1,5 @@
 import type { Command, ProcessRunner, Provider, WorkerRequest, WorkerResult } from "../types.js";
-import { ensureReadOnly, resolveCodexCommand, resultFromProcess } from "./shared.js";
+import { ensureReadOnly, missingHelpFlags, resolveCodexCommand, resultFromProcess } from "./shared.js";
 
 export function createOllamaCommand(request: WorkerRequest, executable = "codex"): Command {
   ensureReadOnly(request);
@@ -20,6 +20,8 @@ export function createOllamaCommand(request: WorkerRequest, executable = "codex"
       "--ignore-user-config",
       "--ignore-rules",
       "--json",
+      "-c",
+      `model_reasoning_effort=${request.effort}`,
       request.prompt,
     ],
   };
@@ -53,7 +55,7 @@ export class OllamaProvider implements Provider {
     }
     const help = await this.runner.run({ command: executable, args: ["exec", "--help"] }, { cwd: request.cwd, timeoutMs: 5_000 });
     const requiredFlags = ["--oss", "--local-provider", "--sandbox", "--ephemeral", "--ignore-user-config", "--json"];
-    if (help.exitCode !== 0 || requiredFlags.some((flag) => !help.stdout.includes(flag))) {
+    if (help.exitCode !== 0 || missingHelpFlags(help, requiredFlags).length > 0) {
       return unavailableResult(request, "Codex CLI lacks a required OSS/read-only option; refusing to run.");
     }
     const startedAt = Date.now();
