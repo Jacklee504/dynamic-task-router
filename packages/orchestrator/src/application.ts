@@ -25,6 +25,7 @@ export type DtrEvent =
   | { type: "run-created"; runId: string; task: string; timestamp: string }
   | { type: "route-selected"; runId: string; model: string; provider: ProviderId; effort: Effort; timestamp: string }
   | { type: "worker-started"; runId: string; workerId: string; provider: ProviderId; model: string; role: WorkerRole; effort: Effort; timestamp: string }
+  | { type: "worker-heartbeat"; runId: string; workerId: string; provider: ProviderId; model: string; role: WorkerRole; effort: Effort; elapsedMs: number; timestamp: string }
   | { type: "worker-completed"; runId: string; workerId: string; result: WorkerResult; timestamp: string }
   | { type: "worker-failed"; runId: string; workerId: string; error: string; timestamp: string }
   | { type: "run-aborting"; runId: string; timestamp: string }
@@ -110,6 +111,7 @@ export class DtrApplication {
       const lifecycle: WorkerLifecycle = {
         onRouteSelected: (selected) => { record.stages[0]!.model = selected.modelId; this.emit({ type: "route-selected", runId: record.id, model: selected.modelId, provider: selected.provider, effort: selected.effort, timestamp: now() }); },
         onWorkerStarted: (info) => this.emit({ type: "worker-started", runId: record.id, workerId: "route", provider: info.provider, model: info.model, role: info.role, effort: info.effort, timestamp: now() }),
+        onWorkerHeartbeat: (info) => this.emit({ type: "worker-heartbeat", runId: record.id, workerId: "route", provider: info.provider, model: info.model, role: info.role, effort: info.effort, elapsedMs: info.elapsedMs, timestamp: now() }),
         onWorkerCompleted: (info) => this.emit({ type: "worker-completed", runId: record.id, workerId: "route", result: info.result, timestamp: now() }),
         onWorkerFailed: (info) => this.emit({ type: "worker-failed", runId: record.id, workerId: "route", error: info.error, timestamp: now() }),
       };
@@ -165,6 +167,7 @@ export class DtrApplication {
   private forwardLifecycle(runId: string): WorkerLifecycle {
     return {
       onWorkerStarted: (info) => this.emit({ type: "worker-started", runId, workerId: info.workerId, provider: info.provider, model: info.model, role: info.role, effort: info.effort, timestamp: now() }),
+      onWorkerHeartbeat: (info) => this.emit({ type: "worker-heartbeat", runId, workerId: info.workerId, provider: info.provider, model: info.model, role: info.role, effort: info.effort, elapsedMs: info.elapsedMs, timestamp: now() }),
       onWorkerCompleted: (info) => this.emit({ type: "worker-completed", runId, workerId: info.workerId, result: info.result, timestamp: now() }),
       onWorkerFailed: (info) => this.emit({ type: "worker-failed", runId, workerId: info.workerId, error: info.error, timestamp: now() }),
     };

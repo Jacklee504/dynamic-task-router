@@ -64,7 +64,11 @@ export async function runSingle(
   options.lifecycle?.onRouteSelected?.({ modelId: model.id, provider: model.provider, model: model.model, effort: effort.effective });
   const workerId = options.workerId ?? model.id;
   options.lifecycle?.onWorkerStarted?.({ workerId, provider: model.provider, model: model.model, role: profile.role, effort: effort.effective });
-  const result = await provider.run(request);
+  const startedAt = Date.now();
+  const heartbeat = setInterval(() => options.lifecycle?.onWorkerHeartbeat?.({ workerId, provider: model.provider, model: model.model, role: profile.role, effort: effort.effective, elapsedMs: Date.now() - startedAt }), 30_000);
+  let result: WorkerResult;
+  try { result = await provider.run(request); }
+  finally { clearInterval(heartbeat); }
   if (result.success) { await recordProviderSuccess(model.provider, cwd); options.lifecycle?.onWorkerCompleted?.({ workerId, result }); }
   else { await recordProviderFailure(model.provider, cwd); options.lifecycle?.onWorkerFailed?.({ workerId, error: result.error ?? "Worker failed" }); }
   const routing: RoutingMetadata = {

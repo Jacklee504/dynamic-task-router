@@ -7,8 +7,10 @@ process—do not add it to configuration or the repository.
 
 Provider timeouts and unavailable models fail the task with an error rather
 than quietly choosing a different provider. `defaults.timeoutMs` in
-`config/routing-policy.yaml` covers startup, queueing, tool use, reasoning, and
-the final response; the repository default is 10 minutes. Refresh a stale optional catalog
+`config/routing-policy.yaml` covers startup, queueing, tool use, and the final
+response; the repository default is one hour. CLI runs print selection, start,
+completion, and a 30-second elapsed heartbeat. DTR never prints model
+chain-of-thought or partial private output. Refresh a stale optional catalog
 with `dtr models refresh`; this affects only cached display metadata. For write
 pipelines, start from a clean Git checkout and use a narrow scope. DTR retains
 the isolated worktree and evidence for review; it never merges or deletes it

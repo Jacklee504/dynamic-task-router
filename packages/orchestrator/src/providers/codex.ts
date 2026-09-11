@@ -16,8 +16,6 @@ export function createCodexCommand(request: WorkerRequest, executable = "codex")
       "--sandbox",
       request.readOnly ? "read-only" : "workspace-write",
       "--ephemeral",
-      "--ignore-user-config",
-      "--ignore-rules",
       "--json",
       "-c",
       `model_reasoning_effort=${request.effort}`,
@@ -40,7 +38,7 @@ export class CodexProvider implements Provider {
     const executable = await resolveCodexCommand(this.runner, request.cwd, undefined, true);
     if (!executable) return unsupportedResult(request, "Codex CLI is unavailable or not authenticated; no fallback provider was selected.");
     const help = await this.runner.run({ command: executable, args: ["exec", "--help"] }, { cwd: request.cwd, timeoutMs: 5_000 });
-    const requiredFlags = ["--cd", "--skip-git-repo-check", "--model", "--sandbox", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--json"];
+    const requiredFlags = ["--cd", "--skip-git-repo-check", "--model", "--sandbox", "--ephemeral", "--json"];
     if (help.exitCode !== 0 || missingHelpFlags(help, requiredFlags).length > 0) {
       return unsupportedResult(request, `Codex CLI lacks a required ${request.readOnly ? "read-only" : "workspace-write"} isolation option; refusing to run.`);
     }

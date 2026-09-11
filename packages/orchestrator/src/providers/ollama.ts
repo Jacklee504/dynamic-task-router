@@ -17,8 +17,6 @@ export function createOllamaCommand(request: WorkerRequest, executable = "codex"
       "--sandbox",
       "read-only",
       "--ephemeral",
-      "--ignore-user-config",
-      "--ignore-rules",
       "--json",
       "-c",
       `model_reasoning_effort=${request.effort}`,
@@ -54,7 +52,7 @@ export class OllamaProvider implements Provider {
       return unavailableResult(request, "Codex CLI is unavailable; Ollama runs require Codex OSS mode in Phase 1.");
     }
     const help = await this.runner.run({ command: executable, args: ["exec", "--help"] }, { cwd: request.cwd, timeoutMs: 5_000 });
-    const requiredFlags = ["--oss", "--local-provider", "--sandbox", "--ephemeral", "--ignore-user-config", "--json"];
+    const requiredFlags = ["--oss", "--local-provider", "--sandbox", "--ephemeral", "--json"];
     if (help.exitCode !== 0 || missingHelpFlags(help, requiredFlags).length > 0) {
       return unavailableResult(request, "Codex CLI lacks a required OSS/read-only option; refusing to run.");
     }

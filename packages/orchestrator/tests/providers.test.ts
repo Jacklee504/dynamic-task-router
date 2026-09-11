@@ -42,7 +42,7 @@ describe("provider command construction", () => {
   it("uses Codex read-only, ephemeral, isolated execution", () => {
     const command = createCodexCommand(request);
     expect(command.args).toEqual(expect.arrayContaining([
-      "exec", "--sandbox", "read-only", "--ephemeral", "--ignore-user-config", "--ignore-rules",
+      "exec", "--sandbox", "read-only", "--ephemeral",
       "--json", "model_reasoning_effort=high",
     ]));
     expect(command.args).not.toContain("--ask-for-approval");

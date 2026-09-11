@@ -2,9 +2,10 @@ version: 1
 phase: 2
 defaults:
   readOnly: true
-  # Total worker runtime: startup, queueing, tool use, reasoning, and final output.
-  # Keep this above normal hosted-model completion time; health checks remain 5 seconds.
-  timeoutMs: 600000
+  # Total worker runtime: startup, queueing, tool use, and final output.
+  # Implementation workers can legitimately take far longer than a simple reply.
+  # Health checks remain short and independent of this limit.
+  timeoutMs: 3600000
 rules:
   automaticSelection: true
   requireExplicitFallback: true

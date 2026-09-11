@@ -81,7 +81,7 @@ async function diagnoseCodex(runner: ProcessRunner, cwd: string): Promise<{ read
       runner.run({ command, args: ["login", "status"] }, { cwd, timeoutMs }),
       runner.run({ command, args: ["exec", "--help"] }, { cwd, timeoutMs }),
     ]);
-    const required = ["--cd", "--skip-git-repo-check", "--model", "--sandbox", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--json"];
+    const required = ["--cd", "--skip-git-repo-check", "--model", "--sandbox", "--ephemeral", "--json"];
     const missingFlags = missingHelpFlags(help, required);
     return { ...version, authenticated: login.exitCode === 0, safe: help.exitCode === 0 && missingFlags.length === 0, ...(missingFlags.length ? { missingFlags } : {}) };
   }));

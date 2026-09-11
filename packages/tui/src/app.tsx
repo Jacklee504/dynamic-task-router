@@ -52,9 +52,11 @@ function updateActive(previous: Record<string, ActiveRun>, event: import("@dynam
   const current = previous[event.runId]; if (!current) return previous;
   if (event.type === "route-selected") return { ...previous, [event.runId]: { ...current, state: "routing", model: event.model, provider: event.provider, effort: event.effort } };
   if (event.type === "worker-started") return { ...previous, [event.runId]: { ...current, state: "running", model: event.model, provider: event.provider, effort: event.effort } };
+  if (event.type === "worker-heartbeat") return { ...previous, [event.runId]: { ...current, state: "running", latest: `working · ${formatElapsed(event.elapsedMs)}` } };
   if (event.type === "worker-completed") return { ...previous, [event.runId]: { ...current, state: "succeeded", latest: event.result.success ? "completed" : "failed" } };
   if (event.type === "run-aborting") return { ...previous, [event.runId]: { ...current, state: "aborting" } };
   if (event.type === "worker-failed") return { ...previous, [event.runId]: { ...current, state: "failed", latest: safeUiError(event.error) } };
   return previous;
 }
 function safeUiError(error: unknown): string { return String(error instanceof Error ? error.message : error).replace(/(?:ANTHROPIC|OPENAI|OPENROUTER|FEATHERLESS)_API_KEY\s*=\s*\S+/gi, "[redacted]").replace(/Authorization:\s*Bearer\s+\S+/gi, "Authorization: [redacted]").slice(0, 300); }
+function formatElapsed(elapsedMs: number): string { const seconds = Math.floor(elapsedMs / 1_000); return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`; }

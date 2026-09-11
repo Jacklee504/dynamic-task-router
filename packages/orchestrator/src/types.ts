@@ -119,6 +119,8 @@ export interface Provider {
 export interface WorkerLifecycle {
   onRouteSelected?: (info: { modelId: string; provider: ProviderId; model: string; effort: Effort }) => void;
   onWorkerStarted?: (info: { workerId: string; provider: ProviderId; model: string; role: WorkerRole; effort: Effort }) => void;
+  /** Lifecycle only. Never surface model reasoning or partial private output. */
+  onWorkerHeartbeat?: (info: { workerId: string; provider: ProviderId; model: string; role: WorkerRole; effort: Effort; elapsedMs: number }) => void;
   onWorkerCompleted?: (info: { workerId: string; result: WorkerResult }) => void;
   onWorkerFailed?: (info: { workerId: string; error: string }) => void;
 }
