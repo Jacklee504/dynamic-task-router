@@ -44,4 +44,8 @@ describe("cli entrypoints", () => {
     expect(err).not.toContain("Unexpected argument");
     expect(err).toMatch(/dtr: ENOENT|dtr: .*not exist|dtr: .*config/i);
   });
+  it("evaluates routing cases against the base config and exits 0", async () => {
+    expect(await main(["evaluate"])).toBe(0);
+    expect(err).toBe("");
+  });
 });

@@ -28,7 +28,7 @@ import { summarizeRuns } from "./stats.js";
 import { summarizeUsage } from "./telemetry/usage.js";
 import { diagnoseProviders } from "./doctor.js";
 import { appendExplicitFileContext } from "./context.js";
-import type { Complexity, ContextRequirement, DiversityLevel, Effort, RiskLevel, TaskProfile, WorkerRequest, WorkerRole } from "./types.js";
+import type { Complexity, ContextRequirement, DiversityLevel, Effort, RiskLevel, TaskProfile, WorkerLifecycle, WorkerRequest, WorkerRole } from "./types.js";
 
 type Flags = Record<string, string | boolean>;
 const roles: WorkerRole[] = ["architect", "implementer", "debugger", "reviewer", "researcher", "test", "log-analysis"];
@@ -70,7 +70,7 @@ export async function main(argv: string[]): Promise<number> {
     if (command === "fanout") return await fanout(configDir, flags, config, providers);
     if (command === "pipeline") return await pipeline(flags, config, providers);
     if (command === "status") return await status(flags);
-    if (command === "evaluate") return await evaluate(configDir, config);
+    if (command === "evaluate") return await evaluate(configDir);
     if (command === "stats") return await stats(flags);
     if (command === "usage") return await usage(flags);
     if (command === "outcome") return await outcome(flags);
@@ -161,7 +161,15 @@ async function runExplicit(configDir: string, flags: Flags, config: Awaited<Retu
   const request: WorkerRequest = { prompt: compactTaskPrompt(prompt, config.policy.prompt, { provider: model.provider, model: model.model, contextTokens: model.limits.contextTokens }), cwd, role, model: model.model, effort, readOnly: true, timeoutMs: config.policy.defaults.timeoutMs };
   const provider = providers[model.provider];
   if (!provider) throw new Error(`Provider '${model.provider}' is not implemented`);
-  const result = await provider.run(request); const logPath = await writeRunLog(stateDirectoryFor(request.cwd), request, result);
+  const progress = cliProgress();
+  progress.onRouteSelected?.({ modelId: model.id, provider: model.provider, model: model.model, effort });
+  progress.onWorkerStarted?.({ workerId: model.id, provider: model.provider, model: model.model, role, effort });
+  const startedAt = Date.now(); const heartbeat = setInterval(() => progress.onWorkerHeartbeat?.({ workerId: model.id, provider: model.provider, model: model.model, role, effort, elapsedMs: Date.now() - startedAt }), 30_000);
+  let result;
+  try { result = await provider.run(request); }
+  finally { clearInterval(heartbeat); }
+  if (result.success) progress.onWorkerCompleted?.({ workerId: model.id, result }); else progress.onWorkerFailed?.({ workerId: model.id, error: result.error ?? "Worker failed" });
+  const logPath = await writeRunLog(stateDirectoryFor(request.cwd), request, result);
   printResult(result.output, result.error, logPath, boolFlag(flags, "verbose")); return result.success ? 0 : 1;
 }
 
@@ -175,7 +183,7 @@ async function selectOnly(flags: Flags, config: Awaited<ReturnType<typeof loadCo
 async function route(configDir: string, flags: Flags, config: Awaited<ReturnType<typeof loadConfig>>, providers: ReturnType<typeof createProviders>): Promise<number> {
   if (flags.prompt !== undefined) throw new Error("`dtr route` accepts --task, not --prompt. Run `dtr start` for the compact dispatch contract.");
   if (flags["include-files"] !== undefined) throw new Error("`dtr route` accepts --files (paths only), not --include-files. Do not paste file content into a normal dispatch.");
-  const task = requiredFlag(flags, "task"); const cwd = cwdFrom(flags); const role = routeRole(flags, task); const prompt = buildCompactTaskPacket(task, typeof flags.files === "string" ? flags.files : undefined); const run = await runSingle(configDir, config, providers, prompt, cwd, profileFrom(flags, task, undefined, role));
+  const task = requiredFlag(flags, "task"); const cwd = cwdFrom(flags); const role = routeRole(flags, task); const prompt = buildCompactTaskPacket(task, typeof flags.files === "string" ? flags.files : undefined); const run = await runSingle(configDir, config, providers, prompt, cwd, profileFrom(flags, task, undefined, role), { lifecycle: cliProgress() });
   if (boolFlag(flags, "verbose")) console.error(JSON.stringify({ routing: run.routing, runLog: run.runLog, success: run.result.success }, null, 2));
   printResult(run.result.output, run.result.error, run.runLog, boolFlag(flags, "verbose")); return run.result.success ? 0 : 1;
 }
@@ -183,7 +191,7 @@ async function route(configDir: string, flags: Flags, config: Awaited<ReturnType
 async function fanout(configDir: string, flags: Flags, config: Awaited<ReturnType<typeof loadConfig>>, providers: ReturnType<typeof createProviders>): Promise<number> {
   const task = requiredFlag(flags, "prompt"); const cwd = cwdFrom(flags); const prompt = await promptWithContext(flags, task, cwd); const families = typeof flags.families === "string" ? Number.parseInt(flags.families, 10) : undefined;
   if (families !== undefined && (!Number.isInteger(families) || families < 2)) throw new Error("--families must be an integer of at least 2");
-  const runs = await runFanout(configDir, config, providers, prompt, cwd, profileFrom(flags, task, families), families);
+  const runs = await runFanout(configDir, config, providers, prompt, cwd, profileFrom(flags, task, families), families, undefined, undefined, cliProgress());
   for (const run of runs) { console.log(JSON.stringify({ model: run.model, routing: run.routing, runLog: run.runLog, success: run.result.success }, null, 2)); printResult(run.result.output, run.result.error, run.runLog); }
   return runs.every((run) => run.result.success) ? 0 : 1;
 }
@@ -192,12 +200,12 @@ async function pipeline(flags: Flags, config: Awaited<ReturnType<typeof loadConf
   const task = requiredFlag(flags, "prompt"); const cwd = cwdFrom(flags); const prompt = await promptWithContext(flags, task, cwd); const template = requiredFlag(flags, "template"); const write = boolFlag(flags, "write");
   const scope = typeof flags.scope === "string" ? flags.scope.split(",").map((item) => item.trim()).filter(Boolean) : [];
   if (write && scope.length === 0) throw new Error("--write requires --scope path1,path2");
-  const run = await runPipeline(config, providers, template, prompt, cwd, profileFrom(flags, task), { write, scope });
+  const run = await runPipeline(config, providers, template, prompt, cwd, profileFrom(flags, task), { write, scope, lifecycle: cliProgress() });
   console.log(JSON.stringify({ runId: run.record.id, state: run.record.state, stages: run.record.stages }, null, 2)); return run.record.state === "succeeded" ? 0 : 1;
 }
 
 async function status(flags: Flags): Promise<number> { console.log(JSON.stringify(await readRunRecord(stateDirectoryFor(cwdFrom(flags)), requiredFlag(flags, "run-id")), null, 2)); return 0; }
-async function evaluate(configDir: string, config: Awaited<ReturnType<typeof loadConfig>>): Promise<number> { const result = await evaluateDirectory(config, resolve(repositoryRootFromConfig(configDir), "evals", "cases")); console.log(JSON.stringify(result, null, 2)); return result.passed === result.total ? 0 : 1; }
+async function evaluate(configDir: string): Promise<number> { const config = await loadConfig(configDir); const result = await evaluateDirectory(config, resolve(repositoryRootFromConfig(configDir), "evals", "cases")); console.log(JSON.stringify(result, null, 2)); return result.passed === result.total ? 0 : 1; }
 async function stats(flags: Flags): Promise<number> { console.log(JSON.stringify(await summarizeRuns(stateDirectoryFor(cwdFrom(flags))), null, 2)); return 0; }
 async function usage(flags: Flags): Promise<number> { console.log(JSON.stringify(await summarizeUsage(stateDirectoryFor(cwdFrom(flags))), null, 2)); return 0; }
 async function outcome(flags: Flags): Promise<number> { const status = enumFlag(flags, "status", ["accepted", "rejected", "partial", "escalated"] as const); const findings = typeof flags.findings === "string" ? Number.parseInt(flags.findings, 10) : undefined; const score = typeof flags.score === "string" ? Number.parseFloat(flags.score) : undefined; console.log(JSON.stringify(await attachRunOutcome(stateDirectoryFor(cwdFrom(flags)), requiredFlag(flags, "run-id"), { status, ...(findings !== undefined ? { reviewFindingsCount: findings } : {}), ...(score !== undefined ? { manualScore: score } : {}), ...(boolFlag(flags, "regression") ? { regressionDetected: true } : {}) }), null, 2)); return 0; }
@@ -229,6 +237,16 @@ function optionalEnumFlag<T extends string>(flags: Flags, name: string, values: 
 function parseFlags(args: string[]): Flags { const flags: Flags = {}; for (let index = 0; index < args.length; index += 1) { const arg = args[index]; if (!arg?.startsWith("--")) throw new Error(`Unexpected argument: ${arg ?? ""}`); const body = arg.slice(2); const equals = body.indexOf("="); if (equals >= 0) { flags[body.slice(0, equals)] = body.slice(equals + 1); continue; } const value = args[index + 1]; if (!value || value.startsWith("--")) { flags[body] = true; continue; } flags[body] = value; index += 1; } return flags; }
 function requiredFlag(flags: Flags, name: string): string { const value = flags[name]; if (typeof value !== "string" || value.length === 0) throw new Error(`--${name} is required`); return value; }
 function printResult(output: string, error: string | undefined, logPath: string, showLog = false): void { if (output) process.stdout.write(output.endsWith("\n") ? output : `${output}\n`); if (error) console.error(`dtr: ${error}`); if (showLog) console.error(`dtr: run log ${logPath}`); }
+function cliProgress(): WorkerLifecycle {
+  return {
+    onRouteSelected: ({ modelId, provider, model, effort }) => console.error(`dtr: selected ${modelId} (${provider}/${model}, ${effort})`),
+    onWorkerStarted: ({ workerId, role }) => console.error(`dtr: worker ${workerId} started for ${role}`),
+    onWorkerHeartbeat: ({ workerId, elapsedMs }) => console.error(`dtr: worker ${workerId} still running (${formatElapsed(elapsedMs)})`),
+    onWorkerCompleted: ({ workerId }) => console.error(`dtr: worker ${workerId} completed`),
+    onWorkerFailed: ({ workerId, error }) => console.error(`dtr: worker ${workerId} failed: ${error}`),
+  };
+}
+function formatElapsed(elapsedMs: number): string { const seconds = Math.floor(elapsedMs / 1_000); return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`; }
 function printUsage(stream: NodeJS.WriteStream = process.stderr): void {
   const lines = [
     "Usage: dtr <start|tui|health|doctor|config|models|opencode-models|run|select|route|fanout|pipeline|status|evaluate|stats|usage|outcome|help|version> [options]",
