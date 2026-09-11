@@ -77,8 +77,7 @@ async function runStage(
   const signal = options.signal;
   const lifecycle = options.lifecycle;
   if (wantsWrite) {
-    if (!options.scope?.length) throw new Error("Write pipeline requires --scope with one or more allowed paths");
-    const boundary: WriteBoundary = { allowedPaths: options.scope };
+    const boundary: WriteBoundary = { allowedPaths: options.scope?.length ? options.scope : ["."] };
     assertSafeBoundary(boundary);
     const worktree = await createWorktree(cwd, runId, stage.id);
     const run = await runSingle(".", config, providers, stagePrompt, worktree.worktree, stageProfile, { writeBoundary: boundary, excludedFamilies, stateRoot, ...(signal ? { signal } : {}), ...(lifecycle ? { lifecycle, workerId: stage.id } : {}) });

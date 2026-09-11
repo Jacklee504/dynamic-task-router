@@ -199,7 +199,6 @@ async function fanout(configDir: string, flags: Flags, config: Awaited<ReturnTyp
 async function pipeline(flags: Flags, config: Awaited<ReturnType<typeof loadConfig>>, providers: ReturnType<typeof createProviders>): Promise<number> {
   const task = requiredFlag(flags, "prompt"); const cwd = cwdFrom(flags); const prompt = await promptWithContext(flags, task, cwd); const template = requiredFlag(flags, "template"); const write = boolFlag(flags, "write");
   const scope = typeof flags.scope === "string" ? flags.scope.split(",").map((item) => item.trim()).filter(Boolean) : [];
-  if (write && scope.length === 0) throw new Error("--write requires --scope path1,path2");
   const run = await runPipeline(config, providers, template, prompt, cwd, profileFrom(flags, task), { write, scope, lifecycle: cliProgress() });
   console.log(JSON.stringify({ runId: run.record.id, state: run.record.state, stages: run.record.stages }, null, 2)); return run.record.state === "succeeded" ? 0 : 1;
 }
@@ -260,7 +259,7 @@ function printUsage(stream: NodeJS.WriteStream = process.stderr): void {
     "Models: dtr models [--refresh] (or `dtr models refresh`); dtr opencode-models (OpenCode's unprofiled configured catalog)",
     "Select: dtr select --role <role> [--prompt <text>] [--complexity <level>] [--risk <level>] [--diversity <level>] [--provider <provider>]",
     "Fanout: dtr fanout --families <n> --role <role> --prompt <text> [profile flags]",
-    "Pipeline: dtr pipeline --template <name> --role <role> --prompt <text> [--write --scope path1,path2]",
+    "Pipeline: dtr pipeline --template <name> --role <role> --prompt <text> [--write] [--scope path1,path2]",
     "Usage: dtr usage [--cwd <repo>] (DTR execution telemetry; not account quota)",
     "Status: dtr status --run-id <uuid> [--cwd <repo>]",
     "Help: dtr --help; Version: dtr --version",

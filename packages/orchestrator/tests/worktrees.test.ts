@@ -38,6 +38,13 @@ describe("isolated worktrees", () => {
     await expect(verifyWriteBoundary(handle.worktree, { allowedPaths: ["src"] })).rejects.toThrow("Write boundary violation");
     expect((await exec("git", ["-C", handle.worktree, "status", "--porcelain"])).stdout).toContain("README.md");
   });
+  it("allows the workspace root boundary but still refuses environment files", async () => {
+    const root = await repository(); const handle = await createWorktree(root, "run-root", "implement");
+    await writeFile(join(handle.worktree, "README.md"), "changed\n");
+    await expect(verifyWriteBoundary(handle.worktree, { allowedPaths: ["."] }, handle.initialHead)).resolves.toMatchObject({ changedPaths: ["README.md"] });
+    await writeFile(join(handle.worktree, ".env.local"), "not allowed\n");
+    await expect(verifyWriteBoundary(handle.worktree, { allowedPaths: ["."] }, handle.initialHead)).rejects.toThrow("Write boundary violation");
+  });
   it("verifies allowed changes and refuses a dirty base", async () => {
     const root = await repository(); const handle = await createWorktree(root, "run-4", "implement");
     await exec("mkdir", ["-p", join(handle.worktree, "src")]); await writeFile(join(handle.worktree, "src", "worker.ts"), "export {};\n");

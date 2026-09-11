@@ -61,9 +61,10 @@ export async function removeDtrWorktree(repo: string, handle: WorktreeHandle): P
 
 function isAllowed(path: string, boundary: WriteBoundary): boolean {
   const normal = path.replace(/^\.\//, "");
-  const allowed = boundary.allowedPaths.some((item) => normal === item || normal.startsWith(`${item.replace(/\/$/, "")}/`));
+  const alwaysForbidden = normal === ".git" || normal.startsWith(".git/") || normal.split("/").some((item) => item.startsWith(".env"));
+  const allowed = boundary.allowedPaths.some((item) => item === "." || normal === item || normal.startsWith(`${item.replace(/\/$/, "")}/`));
   const forbidden = boundary.forbiddenPaths?.some((item) => normal === item || normal.startsWith(`${item.replace(/\/$/, "")}/`)) ?? false;
-  return allowed && !forbidden;
+  return allowed && !forbidden && !alwaysForbidden;
 }
 
 function assertSafeIdentifier(value: string, label: string): void {
