@@ -48,4 +48,12 @@ describe("cli entrypoints", () => {
     expect(await main(["evaluate"])).toBe(0);
     expect(err).toBe("");
   });
+  it("rejects bare --branch without a branch name", async () => {
+    expect(await main(["pipeline", "--template", "implement-review", "--prompt", "test", "--write", "--branch"])).toBe(1);
+    expect(err).toContain("--branch requires a branch name");
+  });
+  it("rejects mutually exclusive --isolated and --branch", async () => {
+    expect(await main(["pipeline", "--template", "implement-review", "--prompt", "test", "--write", "--isolated", "--branch", "feature/test"])).toBe(1);
+    expect(err).toContain("--isolated and --branch are mutually exclusive");
+  });
 });
