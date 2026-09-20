@@ -27,15 +27,18 @@ dtr pipeline --template implement-review --write \
 Omit both stage pins for normal automatic routing. A reviewer pin must provide
 a model family different from the implementation worker.
 
-OpenCode and Antigravity profiles marked `worktree_scoped_write` can be pinned
-as implementation providers, but only with an explicit non-root write scope.
-They are not native-sandboxed writers: DTR confines their repository work to a
-temporary worktree and verifies the diff before the parent considers it.
+Adapters that expose `worktreeScopedWrite` (Antigravity and Codex) can be pinned
+as implementation providers only in isolated or branch write mode with an
+explicit non-root write scope. They are not native-sandboxed writers: DTR
+confines their repository work to a DTR worktree and verifies the diff before
+the parent considers it. OpenCode does not expose `worktreeScopedWrite` in this
+release. Worktree-scoped adapters are not eligible for the default in-place
+write mode.
 
 ```sh
-dtr pipeline --template implement-review --write \
+dtr pipeline --template implement-review --write --isolated \
   --scope src/router,tests/router \
-  --implementation-provider opencode \
+  --implementation-provider antigravity \
   --review-provider codex \
   --prompt "Implement the confirmed focused change and return verification evidence"
 ```

@@ -1,24 +1,28 @@
-# Isolated write workers
+# Write modes and worktrees
 
-Writing is off by default. `implement-review` becomes write-capable with
-`--write`, using the entire target workspace as its write boundary. Provide an
-optional comma-separated `--scope` allowlist to narrow that boundary:
+Writing is off by default. `implement-review` becomes write-capable with `--write`, defaulting to in-place edits on the current clean checkout.
+
+DTR supports three write modes:
+
+1. **Default (In-place)**: Writes directly to the current checkout with atomic write-lock enforcement (`write-lock.json`) to prevent concurrent writer collisions. The repository must be clean before starting.
+2. **Isolated (`--isolated`)**: Creates a temporary detached worktree (`git worktree add --detach <path> HEAD`) in DTR's private temporary state directory. No temporary branches are created.
+3. **Branch (`--branch <name>`)**: Creates a persistent named branch in a separate worktree without switching or altering the user's base checkout.
+
+Provide an optional comma-separated `--scope` allowlist to narrow the write boundary:
 
 ```sh
 npm run dtr -- pipeline --template implement-review --write --scope src/execution,tests/execution --role implementer --prompt "Fix the confirmed state-sync defect and add regression tests"
 ```
 
-Before the worker starts, DTR verifies the target repository is Git and clean,
-then creates the worktree in DTR's private operating-system temporary state
-directory on a unique `dtr/<run-id>-<worker-id>` branch. Codex uses
-`workspace-write` only in that worktree; Claude uses its edit permission mode
-only in that worktree. Ollama is not write-capable. Git necessarily records a
-worktree's administrative entry inside the repository's `.git` directory, but
-no `.dtr` or untracked working-tree files are created in the target repository.
+Before the worker starts, DTR verifies the target repository is Git and clean, acquires locks or prepares the worktree, and prints execution metadata:
 
-After the worker, DTR records changed paths and runs `git diff --check`. Any
-path outside a supplied scope fails the run and the worktree remains as
-evidence. DTR also rejects file deletion/renames and a changed worktree `HEAD`,
-so a worker cannot commit its own result. DTR never auto-merges, force-resets
-the base checkout, removes a user worktree, or deletes an unsafe worktree
-automatically.
+```text
+dtr: run=<id>
+dtr: write mode=<in-place|isolated|branch>
+dtr: branch=<name|detached>
+dtr: base-head=<sha>
+dtr: cwd=<path>
+dtr: scope=<allowed-paths>
+```
+
+After the worker completes, DTR records changed paths and runs `git diff --check`. Any path outside a supplied scope fails the run. DTR also rejects file deletions/renames and worker-created Git commits. By default, write implementation stages that produce no file changes are rejected unless `--allow-noop` is explicitly specified.

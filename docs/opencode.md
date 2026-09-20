@@ -56,7 +56,7 @@ models:
     roles: { architect: 5, implementer: 6, debugger: 6, reviewer: 6, researcher: 7, test: 6, log-analysis: 6 }
     efforts: [low, medium, high]
     default_effort: medium
-    capabilities: { tools: true, vision: false, huge_context: false, write_safe: false, worktree_scoped_write: true }
+    capabilities: { tools: true, vision: false, huge_context: false, write_safe: false }
     limits: { context_tokens: 32768 }
     cost: { input_per_million: 0, output_per_million: 0 }
     privacy: { private_code_allowed: false, training_opt_out_required: true }
@@ -75,11 +75,20 @@ dtr select --provider opencode --role researcher --complexity normal
 dtr route --provider opencode --role researcher --task "Summarize the named public error path." --files "src/errors.ts"
 ```
 
+## Context transport
+
+Because the OpenCode adapter can read and search the workspace, the context
+planner normally sends `RELEVANT FILES` as workspace path references and never
+injects file content. When the planner deliberately selects attachment
+transport (a provider without workspace access), DTR passes the files through
+repeated `--file` arguments on `opencode run`. Ordinary repository context is
+never inlined into the prompt by default.
+
 ## Safety boundary
 
 The bridge sends a compact prompt and does not pass `--auto`, but the current
 OpenCode CLI does not expose a DTR-verifiable permission mode. Keep
-`write_safe: false`. A profile may opt into `worktree_scoped_write: true` for
-an explicit DTR write pipeline with a non-root scope: DTR creates an isolated
-worktree, rejects commits, deletes, renames, and out-of-scope diffs, and never
-merges automatically. Use `--private-code` or `--no-remote` to exclude it.
+`write_safe: false`. The DTR OpenCode adapter also does not expose
+`worktreeScopedWrite` in this release, so OpenCode models are not eligible as
+implementation providers for write pipelines. Use `--private-code` or
+`--no-remote` to exclude them.

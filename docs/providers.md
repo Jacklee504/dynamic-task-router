@@ -23,9 +23,10 @@ dtr route --provider antigravity --task "Review the named parser error path and 
 
 Antigravity runs in its own `--sandbox` mode. Its current CLI does **not**
 provide DTR with a verified read-only permission switch comparable to Codex's
-`read-only` sandbox or Claude's `plan` mode. The supplied profiles therefore
-keep `write_safe: false`, but opt into `worktree_scoped_write`: an explicit
-write pipeline with a non-root scope may use Antigravity inside a DTR worktree.
+`read-only` sandbox or Claude's `plan` mode. The adapter therefore keeps
+`write_safe: false` and instead exposes `worktreeScopedWrite`: an explicit
+write pipeline in isolated or branch mode with a non-root scope may use
+Antigravity inside a DTR worktree. It is never eligible for in-place writes.
 DTR rejects commits, deletes, renames, and out-of-scope diffs, then leaves
 integration to the parent. Do not treat this as a hard filesystem boundary.
 `--private-code`, `--no-remote`, and `--local-only` exclude it.
@@ -120,10 +121,11 @@ auto-add every OpenCode model to DTR routing. Add a reviewed profile for each
 model you want DTR to select, using the personal-config workflow in the
 [OpenCode guide](opencode.md).
 
-DTR runs OpenCode with `opencode run --model … --format json` and never passes
-`--auto`, attaches files, or resumes a shared session. Current OpenCode CLI
-versions do not give DTR a verified permission flag. OpenCode models remain
-non-private by default, but a reviewed profile with `worktree_scoped_write:
-true` may write only through an explicit DTR pipeline scope and isolated
-worktree. DTR verifies the diff but does not make this a hard filesystem
-boundary.
+DTR runs OpenCode with `opencode run --model … --format json` in bounded
+task mode and never passes `--auto` or resumes a shared session. Current
+OpenCode CLI versions do not give DTR a verified permission flag, and the DTR
+adapter exposes no `worktreeScopedWrite` in this release, so OpenCode models
+are not eligible as implementation providers for write pipelines. The adapter
+passes explicitly selected native text attachments through repeated `--file`
+arguments only when the context planner chooses attachment transport; ordinary
+repository context stays as workspace path references.

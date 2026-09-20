@@ -12,7 +12,8 @@ implementation work.
 
 ## Before dispatch
 
-Use `dtr_start` once at the start of a DTR workflow. Check `dtr_doctor` when a
+This skill already contains the dispatch contract, so `dtr_start` is only for
+humans or generic MCP clients that lack this skill. Check `dtr_doctor` when a
 provider may be unavailable, unauthenticated, or newly configured. Do not
 attempt to repair authentication, install tools, alter provider configuration,
 or expose credentials unless the user explicitly asks.
@@ -23,8 +24,10 @@ Turn the parent objective into one compact task:
 - Name at most eight relevant relative paths. Point to symbols or paths rather
   than pasting source, logs, a transcript, or routing rationale.
 - Keep the task under 100 words. Do not include private reasoning.
-- Use `dtr_prepare` before every dispatched task. Correct its scope or profile
-  if needed, then dispatch only after it returns a valid packet and route.
+- `dtr_prepare` is optional. Use it for a route preview, calibration, or
+  uncertain scope. Normal validation already happens inside `dtr_run`,
+  `dtr_dispatch`, and `dtr_pipeline`; do not require a prepare round-trip
+  before every run.
 
 Use this shape when writing a task:
 
@@ -39,6 +42,9 @@ Check: <targeted command or evidence>.
 - Use `dtr_run` for a single read-only investigation, focused review, or
   verification. Return its compact `STATUS`, `PATHS`, `CHECK`, and `RISK`
   handoff to the parent.
+- Use `dtr_dispatch` for a long single read-only worker: it returns the run ID
+  immediately, your own work can continue, then poll `dtr_status` and use
+  `dtr_abort` if needed.
 - Use `dtr_fanout` only when an independent comparison is materially useful.
   Do not fan out routine tasks.
 - Use `dtr_pipeline` for a user-authorized, multi-stage workflow. Use
@@ -58,13 +64,15 @@ lineage, such as `featherless`, `google`, `anthropic`, or `openai`. To select
 an OpenCode-backed model, use `allowedProviders: ["opencode"]`, never
 `allowedFamilies: ["opencode"]`. Do the equivalent for Antigravity.
 
-OpenCode and Antigravity may be configured for `worktree_scoped_write`. This
-is not equivalent to `write_safe`: DTR creates an isolated worktree, requires
-an explicit non-root `scope`, rejects commits, deletes, renames, and
-out-of-scope changes, then leaves integration to the parent. Use either as an
-`implementationProvider` only in a user-authorized `write: true` pipeline
-with named paths, never `scope: ["."]`. Use a different-family provider, such
-as `codex`, for review. Do not weaken `write_safe: false`.
+Antigravity and Codex provide `worktreeScopedWrite`. This is not
+equivalent to `write_safe`: `worktreeScopedWrite` providers are eligible for
+isolated worktree or persistent branch writes with an explicit non-root
+`scope`, rejecting commits, deletes, renames, and out-of-scope changes, but are
+not eligible for direct in-place writes to `main`. OpenCode does not expose
+`worktreeScopedWrite` in this release. Use worktree-scoped write providers only in
+a user-authorized `write: true` pipeline with named paths, never `scope: ["."]`.
+Use a different-family provider, such as `claude` or `codex`, for review. Do not
+weaken `write_safe: false`.
 
 Do not combine a remote-provider request with `localOnly`, `allowRemote:
 false`, or `privateCode: true`. Remote profiles remain ineligible for private
@@ -81,10 +89,12 @@ context out of the worker packet.
 ## Results and follow-up
 
 MCP returns the selected route and the bounded worker handoff for `dtr_run`.
-For a pipeline, retain the returned run ID and stage summary; use `dtr_status`
-to inspect completion metadata. Treat a successful worker as evidence, not as
-an integration decision. Review the relevant diff and run the targeted checks
-before declaring the user request complete.
+For a dispatched or pipeline run, retain the returned run ID and stage summary;
+use `dtr_status` to inspect completion metadata and `dtr_abort` to stop an
+in-flight worker when the parent resolves the question early. Treat a
+successful worker as evidence, not as an integration decision. Review the
+relevant diff and run the targeted checks before declaring the user request
+complete.
 
 Record the parent decision with `dtr_outcome` after reviewing a substantial
 DTR result. Use `accepted`, `rejected`, `partial`, or `escalated` truthfully.

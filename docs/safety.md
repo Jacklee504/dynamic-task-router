@@ -19,11 +19,15 @@ rejects an out-of-scope path, deletion, malformed diff, or changed Git `HEAD`.
 It never auto-commits, pushes, merges, or cleans up a failed worktree.
 
 Write access needs all of: an explicit write pipeline request, a clean Git base,
-a single stage owner, an isolated DTR worktree, an allowed path list, and
-post-run path verification. A registry model must be either `write_safe` or
-explicitly opted into `worktree_scoped_write`. The latter also requires a
-non-root scope and never makes the provider private-code approved. It is never
-available through a raw MCP command or arbitrary CLI flags.
+a single stage owner, an allowed path list, and post-run path verification.
+The write target is the current checkout by default (in-place), a temporary
+detached worktree with `--isolated`, or a persistent branch worktree with
+`--branch`. In-place mode requires a `write_safe` model; isolated or branch
+mode also allows an adapter that exposes `worktreeScopedWrite` (Antigravity
+and Codex) together with an explicit non-root scope. That adapter capability
+never makes the provider private-code approved nor eligible for in-place
+writes. It is never available through a raw MCP command or arbitrary CLI
+flags.
 
 Run records contain routing and execution metadata, not prompt/output bodies or
 environment values. A failed/unknown process is not reported as aborted; abort
