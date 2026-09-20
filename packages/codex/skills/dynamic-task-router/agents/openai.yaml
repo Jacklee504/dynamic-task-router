@@ -1,0 +1,4 @@
+interface:
+  display_name: "Dynamic Task Router"
+  short_description: "Delegate bounded coding work through DTR."
+  default_prompt: "Use $dynamic-task-router to route this bounded task through DTR."

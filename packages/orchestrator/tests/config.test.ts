@@ -32,8 +32,9 @@ diversity:
 
 describe("configuration", () => {
   it("parses the Phase 2 registry and policy", () => {
-    const config = parseConfig(models, policy);
+    const config = parseConfig(models.replace("write_safe: false", "write_safe: false, worktree_scoped_write: true"), policy);
     expect(config.models[0]?.roles.reviewer).toBe(9);
+    expect(config.models[0]?.capabilities.worktreeScopedWrite).toBe(true);
     expect(config.policy.effort.minimumForRisk.high).toBe("high");
   });
   it("rejects a default effort that is not supported", () => {

@@ -172,6 +172,14 @@ describe("provider health and safety fallback", () => {
     const provider = new ClaudeProvider(new FakeRunner([{ stdout: "", stderr: "not found", exitCode: null, timedOut: false, error: "ENOENT" }]));
     await expect(provider.health()).resolves.toBe(false);
   });
+  it("reports Claude unavailable when required safety flags are absent", async () => {
+    const provider = new ClaudeProvider(new FakeRunner([
+      { stdout: "Claude", stderr: "", exitCode: 0, timedOut: false },
+      { stdout: "authenticated", stderr: "", exitCode: 0, timedOut: false },
+      { stdout: "--permission-mode", stderr: "", exitCode: 0, timedOut: false },
+    ]));
+    await expect(provider.health()).resolves.toBe(false);
+  });
 
   it("refuses Claude execution when plan mode is unsupported", async () => {
     const provider = new ClaudeProvider(new FakeRunner([{ stdout: "no useful flags", stderr: "", exitCode: 0, timedOut: false }]));

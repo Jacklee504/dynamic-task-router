@@ -56,7 +56,7 @@ models:
     roles: { architect: 5, implementer: 6, debugger: 6, reviewer: 6, researcher: 7, test: 6, log-analysis: 6 }
     efforts: [low, medium, high]
     default_effort: medium
-    capabilities: { tools: true, vision: false, huge_context: false, write_safe: false }
+    capabilities: { tools: true, vision: false, huge_context: false, write_safe: false, worktree_scoped_write: true }
     limits: { context_tokens: 32768 }
     cost: { input_per_million: 0, output_per_million: 0 }
     privacy: { private_code_allowed: false, training_opt_out_required: true }
@@ -77,8 +77,9 @@ dtr route --provider opencode --role researcher --task "Summarize the named publ
 
 ## Safety boundary
 
-The bridge sends a compact advisory prompt and does not pass `--auto`, but the
-current OpenCode CLI does not expose a DTR-verifiable read-only permission mode.
-For that reason these profiles must keep `write_safe: false`, and DTR rejects
-them from write pipelines. Run advisory tasks only in a trusted checkout or an
-isolated worktree. Use `--private-code` or `--no-remote` to exclude them.
+The bridge sends a compact prompt and does not pass `--auto`, but the current
+OpenCode CLI does not expose a DTR-verifiable permission mode. Keep
+`write_safe: false`. A profile may opt into `worktree_scoped_write: true` for
+an explicit DTR write pipeline with a non-root scope: DTR creates an isolated
+worktree, rejects commits, deletes, renames, and out-of-scope diffs, and never
+merges automatically. Use `--private-code` or `--no-remote` to exclude it.

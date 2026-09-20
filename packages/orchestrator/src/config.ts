@@ -36,6 +36,7 @@ const modelSchema = z.object({
     vision: z.boolean(),
     huge_context: z.boolean(),
     write_safe: z.boolean(),
+    worktree_scoped_write: z.boolean().default(false),
   }),
   limits: z.object({ context_tokens: z.number().int().positive() }).default({ context_tokens: 32_768 }),
   cost: z.object({ input_per_million: z.number().nonnegative(), output_per_million: z.number().nonnegative() }).default({ input_per_million: 0, output_per_million: 0 }),
@@ -155,7 +156,7 @@ export type ModelConfig = {
   roles: Record<WorkerRole, number>;
   efforts: Effort[];
   defaultEffort: Effort;
-  capabilities: { tools: boolean; vision: boolean; hugeContext: boolean; writeSafe: boolean };
+  capabilities: { tools: boolean; vision: boolean; hugeContext: boolean; writeSafe: boolean; worktreeScopedWrite: boolean };
   limits: { contextTokens: number };
   cost: { inputPerMillion: number; outputPerMillion: number };
   privacy: { privateCodeAllowed: boolean; trainingOptOutRequired: boolean };
@@ -188,6 +189,7 @@ export function parseConfig(modelsText: string, policyText: string, pipelinesTex
         vision: model.capabilities.vision,
         hugeContext: model.capabilities.huge_context,
         writeSafe: model.capabilities.write_safe,
+        worktreeScopedWrite: model.capabilities.worktree_scoped_write,
       },
       limits: { contextTokens: model.limits.context_tokens },
       cost: { inputPerMillion: model.cost.input_per_million, outputPerMillion: model.cost.output_per_million },

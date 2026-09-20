@@ -21,14 +21,14 @@ dtr models
 dtr route --provider antigravity --task "Review the named parser error path and identify the focused check." --files "src/parser.ts,test/parser.test.ts"
 ```
 
-Antigravity runs in its own `--sandbox` mode and DTR adds an inspect-only
-instruction to advisory routes. Its current CLI does **not** provide DTR with a
-verified read-only permission switch comparable to Codex's `read-only` sandbox
-or Claude's `plan` mode. DTR therefore never selects it for write pipelines
-(`write_safe: false`), but a normal advisory run still executes in the selected
-checkout. Use a trusted checkout or an isolated worktree when invoking it; do
-not treat it as a hard read-only boundary. `--private-code`, `--no-remote`, and
-`--local-only` exclude it.
+Antigravity runs in its own `--sandbox` mode. Its current CLI does **not**
+provide DTR with a verified read-only permission switch comparable to Codex's
+`read-only` sandbox or Claude's `plan` mode. The supplied profiles therefore
+keep `write_safe: false`, but opt into `worktree_scoped_write`: an explicit
+write pipeline with a non-root scope may use Antigravity inside a DTR worktree.
+DTR rejects commits, deletes, renames, and out-of-scope diffs, then leaves
+integration to the parent. Do not treat this as a hard filesystem boundary.
+`--private-code`, `--no-remote`, and `--local-only` exclude it.
 
 If Terminal can run `agy` but `dtr doctor` cannot find it, start DTR from that
 same shell or set the non-secret command-path variable before launching DTR:
@@ -122,7 +122,8 @@ model you want DTR to select, using the personal-config workflow in the
 
 DTR runs OpenCode with `opencode run --model … --format json` and never passes
 `--auto`, attaches files, or resumes a shared session. Current OpenCode CLI
-versions do not give DTR a verified read-only permission flag. OpenCode models
-are therefore advisory-only (`write_safe: false`) and not approved for private
-code by default. Use a trusted checkout or isolated worktree; do not treat the
-prompt instruction as a hard filesystem boundary.
+versions do not give DTR a verified permission flag. OpenCode models remain
+non-private by default, but a reviewed profile with `worktree_scoped_write:
+true` may write only through an explicit DTR pipeline scope and isolated
+worktree. DTR verifies the diff but does not make this a hard filesystem
+boundary.

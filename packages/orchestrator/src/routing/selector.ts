@@ -3,7 +3,7 @@ import { selectEffort } from "./effort.js";
 import type { ModelSelection, SelectionExplanation, TaskProfile } from "../types.js";
 
 export type Availability = Record<string, boolean | undefined>;
-export type SelectionOptions = { requireWrite?: boolean; modelId?: string; excludedModels?: Set<string>; circuitOpenProviders?: Set<string> };
+export type SelectionOptions = { requireWrite?: boolean; allowWorktreeScopedWrite?: boolean; modelId?: string; excludedModels?: Set<string>; circuitOpenProviders?: Set<string> };
 const tiers = ["fast", "standard", "deep", "critical"] as const;
 type ModelTier = typeof tiers[number];
 
@@ -62,8 +62,13 @@ export function selectionRejections(config: RouterConfig, task: TaskProfile, ava
 }
 
 /** Compact one-line summary of rejection reasons for error messages. */
-export function summarizeRejections(rejected: Record<string, string[]>): string {
-  const lines = Object.entries(rejected).map(([id, reasons]) => `${id} (${reasons.join("; ")})`);
+export function summarizeRejections(rejected: Record<string, string[]>, task?: Pick<TaskProfile, "allowedProviders" | "allowedFamilies">): string {
+  const entries = Object.entries(rejected);
+  const matching = task && (task.allowedProviders?.length || task.allowedFamilies?.length)
+    ? entries.filter(([, reasons]) => !reasons.includes("provider is not allowed") && !reasons.includes("model family is not allowed"))
+    : [];
+  const ordered = matching.length ? [...matching, ...entries.filter((entry) => !matching.includes(entry))] : entries;
+  const lines = ordered.map(([id, reasons]) => `${id} (${reasons.join("; ")})`);
   if (!lines.length) return "constraints cannot be safely satisfied";
   return lines.length > 5 ? `${lines.slice(0, 5).join(", ")}, (+${lines.length - 5} more)` : lines.join(", ");
 }
@@ -93,7 +98,10 @@ function gateReasons(
   if (task.allowedFamilies && !task.allowedFamilies.includes(model.family)) reasons.push("model family is not allowed");
   if (task.allowedProviders && !task.allowedProviders.includes(model.provider)) reasons.push("provider is not allowed");
   if (task.requiresTools && !model.capabilities.tools) reasons.push("required tools unavailable");
-  if (options.requireWrite && !model.capabilities.writeSafe) reasons.push("isolated write capability unavailable");
+  if (options.requireWrite && !model.capabilities.writeSafe) {
+    if (!model.capabilities.worktreeScopedWrite) reasons.push("isolated write capability unavailable");
+    else if (!options.allowWorktreeScopedWrite) reasons.push("worktree-scoped write requires an explicit non-root scope");
+  }
   if (task.contextRequirement === "huge" && !model.capabilities.hugeContext) reasons.push("huge context unavailable");
   if (declaredRoleScore === undefined) reasons.push(`no declared score for role '${task.role}'`);
   else if (roleScore < minimumRole) reasons.push(`role score ${roleScore} below minimum ${minimumRole}`);

@@ -123,6 +123,15 @@ describe("routing policy", () => {
   it("fails closed for privacy-sensitive work when no local model is available", () => {
     expect(selectModel(config, profile({ privacySensitive: true }), { "qwen-local": false })).toBeUndefined();
   });
+  it("allows an opted-in worktree writer only with an explicit non-root scope", () => {
+    const scoped = structuredClone(config);
+    const writer = scoped.models.find((model) => model.id === "codex-build")!;
+    writer.capabilities.worktreeScopedWrite = true;
+    const implementation = profile({ role: "implementer" });
+    expect(selectModel(scoped, implementation, {}, new Set(), { requireWrite: true })).toBeUndefined();
+    expect(selectionRejections(scoped, implementation, {}, { requireWrite: true })["codex-build"]).toContain("worktree-scoped write requires an explicit non-root scope");
+    expect(selectModel(scoped, implementation, {}, new Set(), { requireWrite: true, allowWorktreeScopedWrite: true })?.model).toBe("codex-build");
+  });
   it("rejects models with no declared score for the task role instead of selecting them with NaN scores", () => {
     const partial = structuredClone(config);
     delete partial.models.find((model) => model.id === "codex-build")!.roles.reviewer;

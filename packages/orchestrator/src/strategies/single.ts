@@ -19,13 +19,13 @@ export async function runSingle(
   prompt: string,
   cwd: string,
   profile: TaskProfile,
-  options: { writeBoundary?: WriteBoundary; excludedFamilies?: Set<string>; modelId?: string; effort?: import("../types.js").Effort; signal?: AbortSignal; stateRoot?: string; lifecycle?: WorkerLifecycle; workerId?: string } = {},
+  options: { writeBoundary?: WriteBoundary; allowWorktreeScopedWrite?: boolean; excludedFamilies?: Set<string>; modelId?: string; effort?: import("../types.js").Effort; signal?: AbortSignal; stateRoot?: string; lifecycle?: WorkerLifecycle; workerId?: string } = {},
 ): Promise<RoutedRun> {
   if (requiredFamilies(config, profile.diversity) > 1) {
     throw new Error("This task requires independent model families; use dtr fanout rather than dtr route");
   }
   const circuitOpenProviders = await openCircuitProviders(cwd);
-  const selectionOptions = { requireWrite: Boolean(options.writeBoundary), ...(options.modelId ? { modelId: options.modelId } : {}), circuitOpenProviders };
+  const selectionOptions = { requireWrite: Boolean(options.writeBoundary), ...(options.allowWorktreeScopedWrite ? { allowWorktreeScopedWrite: true } : {}), ...(options.modelId ? { modelId: options.modelId } : {}), circuitOpenProviders };
   const preferred = selectModel(config, profile, {}, options.excludedFamilies, selectionOptions);
   const failedPreflights = new Set<string>();
   let selection = selectModel(config, profile, {}, options.excludedFamilies, selectionOptions);
@@ -43,7 +43,7 @@ export async function runSingle(
   }
   if (!selection || !model) {
     const rejected = selectionRejections(config, profile, {}, { ...selectionOptions, ...(failedPreflights.size ? { excludedModels: failedPreflights } : {}) }, options.excludedFamilies);
-    throw new Error(`No eligible live model: ${preflightReason ?? summarizeRejections(rejected)}`);
+    throw new Error(`No eligible live model: ${preflightReason ?? summarizeRejections(rejected, profile)}`);
   }
   if (options.signal?.aborted) throw new DOMException("aborted", "AbortError");
   const baselineEffort = selectEffort(config, model, profile);

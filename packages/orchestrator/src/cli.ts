@@ -28,7 +28,7 @@ import { summarizeRuns } from "./stats.js";
 import { summarizeUsage } from "./telemetry/usage.js";
 import { diagnoseProviders } from "./doctor.js";
 import { appendExplicitFileContext } from "./context.js";
-import type { Complexity, ContextRequirement, DiversityLevel, Effort, RiskLevel, TaskProfile, WorkerLifecycle, WorkerRequest, WorkerRole } from "./types.js";
+import type { Complexity, ContextRequirement, DiversityLevel, Effort, ProviderId, RiskLevel, TaskProfile, WorkerLifecycle, WorkerRequest, WorkerRole } from "./types.js";
 
 type Flags = Record<string, string | boolean>;
 const roles: WorkerRole[] = ["architect", "implementer", "debugger", "reviewer", "researcher", "test", "log-analysis"];
@@ -36,6 +36,7 @@ const complexities: Complexity[] = ["trivial", "normal", "difficult", "extreme"]
 const risks: RiskLevel[] = ["low", "medium", "high"];
 const diversities: DiversityLevel[] = ["none", "low", "medium", "high"];
 const contexts: ContextRequirement[] = ["small", "medium", "large", "huge"];
+const providerIds = ["claude", "codex", "ollama", "openrouter", "featherless", "antigravity", "opencode"] as const;
 
 export async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv;
@@ -197,9 +198,11 @@ async function fanout(configDir: string, flags: Flags, config: Awaited<ReturnTyp
 }
 
 async function pipeline(flags: Flags, config: Awaited<ReturnType<typeof loadConfig>>, providers: ReturnType<typeof createProviders>): Promise<number> {
+  if (flags.provider !== undefined) throw new Error("`dtr pipeline` does not accept --provider because independent stages need different providers. Use --implementation-provider and/or --review-provider.");
   const task = requiredFlag(flags, "prompt"); const cwd = cwdFrom(flags); const prompt = await promptWithContext(flags, task, cwd); const template = requiredFlag(flags, "template"); const write = boolFlag(flags, "write");
   const scope = typeof flags.scope === "string" ? flags.scope.split(",").map((item) => item.trim()).filter(Boolean) : [];
-  const run = await runPipeline(config, providers, template, prompt, cwd, profileFrom(flags, task), { write, scope, lifecycle: cliProgress() });
+  const implementationProvider = optionalProviderFlag(flags, "implementation-provider"); const reviewProvider = optionalProviderFlag(flags, "review-provider");
+  const run = await runPipeline(config, providers, template, prompt, cwd, profileFrom(flags, task), { write, scope, implementationProvider, reviewProvider, lifecycle: cliProgress() });
   console.log(JSON.stringify({ runId: run.record.id, state: run.record.state, stages: run.record.stages }, null, 2)); return run.record.state === "succeeded" ? 0 : 1;
 }
 
@@ -216,9 +219,10 @@ function profileFrom(flags: Flags, prompt: string, families?: number, providedRo
   const contextRequirement = optionalEnumFlag(flags, "context", contexts);
   return classifyTask(prompt, providedRole ?? enumFlag(flags, "role", roles), {
     ...(complexity ? { complexity } : {}), ...(risk ? { risk } : {}), ...(diversity ? { diversity } : {}), ...(contextRequirement ? { contextRequirement } : {}),
-    preferLocal: boolFlag(flags, "prefer-local"), requireLocal: boolFlag(flags, "local-only"), privacySensitive: boolFlag(flags, "privacy-sensitive"), privateCode: boolFlag(flags, "private-code"), allowRemote: !boolFlag(flags, "no-remote"), ...(flags.provider !== undefined ? { allowedProviders: [enumFlag(flags, "provider", ["claude", "codex", "ollama", "openrouter", "featherless", "antigravity", "opencode"] as const)] } : {}), requiresTools: boolFlag(flags, "requires-tools"),
+    preferLocal: boolFlag(flags, "prefer-local"), requireLocal: boolFlag(flags, "local-only"), privacySensitive: boolFlag(flags, "privacy-sensitive"), privateCode: boolFlag(flags, "private-code"), allowRemote: !boolFlag(flags, "no-remote"), ...(flags.provider !== undefined ? { allowedProviders: [enumFlag(flags, "provider", providerIds)] } : {}), requiresTools: boolFlag(flags, "requires-tools"),
   });
 }
+function optionalProviderFlag(flags: Flags, name: string): ProviderId | undefined { return flags[name] === undefined ? undefined : enumFlag(flags, name, providerIds); }
 function routeRole(flags: Flags, task: string): WorkerRole {
   if (flags.role !== undefined) return enumFlag(flags, "role", roles);
   if (/\b(review|audit)\b/i.test(task)) return "reviewer";
@@ -259,7 +263,7 @@ function printUsage(stream: NodeJS.WriteStream = process.stderr): void {
     "Models: dtr models [--refresh] (or `dtr models refresh`); dtr opencode-models (OpenCode's unprofiled configured catalog)",
     "Select: dtr select --role <role> [--prompt <text>] [--complexity <level>] [--risk <level>] [--diversity <level>] [--provider <provider>]",
     "Fanout: dtr fanout --families <n> --role <role> --prompt <text> [profile flags]",
-    "Pipeline: dtr pipeline --template <name> --role <role> --prompt <text> [--write] [--scope path1,path2]",
+    "Pipeline: dtr pipeline --template <name> --role <role> --prompt <text> [--write] [--scope path1,path2] [--implementation-provider <provider>] [--review-provider <provider>]",
     "Usage: dtr usage [--cwd <repo>] (DTR execution telemetry; not account quota)",
     "Status: dtr status --run-id <uuid> [--cwd <repo>]",
     "Help: dtr --help; Version: dtr --version",

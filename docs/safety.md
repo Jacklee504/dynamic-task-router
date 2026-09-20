@@ -19,8 +19,10 @@ rejects an out-of-scope path, deletion, malformed diff, or changed Git `HEAD`.
 It never auto-commits, pushes, merges, or cleans up a failed worktree.
 
 Write access needs all of: an explicit write pipeline request, a clean Git base,
-a single stage owner, an isolated DTR worktree, a registry model marked
-`write_safe`, an allowed path list, and post-run path verification. It is never
+a single stage owner, an isolated DTR worktree, an allowed path list, and
+post-run path verification. A registry model must be either `write_safe` or
+explicitly opted into `worktree_scoped_write`. The latter also requires a
+non-root scope and never makes the provider private-code approved. It is never
 available through a raw MCP command or arbitrary CLI flags.
 
 Run records contain routing and execution metadata, not prompt/output bodies or

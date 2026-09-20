@@ -49,6 +49,10 @@ templates:
       - { id: diagnose, role: debugger, strategy: single, readOnly: true }
       - { id: independent, role: debugger, strategy: single, readOnly: true, dependsOn: [diagnose], diversity: medium }
       - { id: review, role: reviewer, strategy: single, readOnly: true, dependsOn: [diagnose, independent], diversity: medium }
+  - id: implement-review
+    stages:
+      - { id: implement, role: implementer, strategy: single, readOnly: true }
+      - { id: review, role: reviewer, strategy: single, readOnly: true, dependsOn: [implement], diversity: medium }
 `;
 const config = parseConfig(models, policy, pipelines);
 const directories: string[] = [];
@@ -82,6 +86,13 @@ describe("MCP and pipelines", () => {
     await runPipeline(config, { claude: provider("claude", calls), codex: provider("codex", calls) }, "debug-review", "Trace", root, { role: "debugger", complexity: "difficult", risk: "low", preferLocal: false, requireLocal: false, privacySensitive: false, diversity: "none", requiresTools: false }, { lifecycle });
     expect(started).toEqual(["diagnose", "independent", "review"]);
     expect(completed).toEqual(["diagnose", "independent", "review"]);
+  });
+  it("pins implementation and review separately while preserving independent review", async () => {
+    const root = await mkdtemp(join(tmpdir(), "dtr-pipeline-")); directories.push(root, stateDirectoryFor(root)); const calls: WorkerRequest[] = [];
+    const task = { role: "implementer" as const, complexity: "normal" as const, risk: "low" as const, preferLocal: false, requireLocal: false, privacySensitive: false, diversity: "none" as const, requiresTools: false };
+    const run = await runPipeline(config, { claude: provider("claude", calls), codex: provider("codex", calls) }, "implement-review", "Implement", root, task, { implementationProvider: "codex", reviewProvider: "claude" });
+    expect(run.record.stages.map((stage) => stage.model)).toEqual(["codex", "claude"]);
+    await expect(runPipeline(config, { claude: provider("claude", []), codex: provider("codex", []) }, "implement-review", "Implement", root, task, { implementationProvider: "codex", reviewProvider: "codex" })).rejects.toThrow("no model family independent");
   });
   it("persists a failed stage and does not run dependents", async () => {
     const root = await mkdtemp(join(tmpdir(), "dtr-pipeline-")); directories.push(root, stateDirectoryFor(root)); const calls: WorkerRequest[] = [];

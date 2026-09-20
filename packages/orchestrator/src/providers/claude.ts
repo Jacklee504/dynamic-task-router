@@ -36,8 +36,11 @@ export class ClaudeProvider implements Provider {
 
   async health(): Promise<boolean> {
     if (!(await commandAvailable(this.runner, "claude"))) return false;
-    const auth = await this.runner.run({ command: "claude", args: ["auth", "status"] }, { cwd: process.cwd(), timeoutMs: 5_000 });
-    return auth.exitCode === 0;
+    const [auth, help] = await Promise.all([
+      this.runner.run({ command: "claude", args: ["auth", "status"] }, { cwd: process.cwd(), timeoutMs: 5_000 }),
+      this.runner.run(helpCommand("claude"), { cwd: process.cwd(), timeoutMs: 5_000 }),
+    ]);
+    return auth.exitCode === 0 && help.exitCode === 0 && missingHelpFlags(help, ["--permission-mode", "--max-turns"]).length === 0;
   }
 
   async run(request: WorkerRequest): Promise<WorkerResult> {

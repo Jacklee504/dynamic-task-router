@@ -5,9 +5,9 @@ import { runSingle, type RoutedRun } from "./single.js";
 import { assertSafeBoundary, createWorktree, verifyWriteBoundary } from "../worktrees/manager.js";
 import { stateDirectoryFor } from "../state.js";
 import type { WriteVerification } from "../worktrees/types.js";
-import type { PipelineDefinition, PipelineStage, Provider, TaskProfile, WorkerLifecycle, WriteBoundary } from "../types.js";
+import type { PipelineDefinition, PipelineStage, Provider, ProviderId, TaskProfile, WorkerLifecycle, WriteBoundary } from "../types.js";
 
-export type PipelineOptions = { write?: boolean | undefined; scope?: string[] | undefined; runId?: string | undefined; signal?: AbortSignal | undefined; lifecycle?: WorkerLifecycle | undefined };
+export type PipelineOptions = { write?: boolean | undefined; scope?: string[] | undefined; implementationProvider?: ProviderId | undefined; reviewProvider?: ProviderId | undefined; runId?: string | undefined; signal?: AbortSignal | undefined; lifecycle?: WorkerLifecycle | undefined };
 export type PipelineStageResult = { id: string; model: string; output: string; verification?: WriteVerification };
 export type PipelineRun = { record: RunRecord; stages: PipelineStageResult[] };
 
@@ -21,6 +21,9 @@ export async function runPipeline(
   options: PipelineOptions = {},
 ): Promise<PipelineRun> {
   const definition = pipeline(config, templateId);
+  if (profile.allowedProviders?.length) throw new Error("Pipeline-wide provider pins are unsupported. Use implementationProvider or reviewProvider instead.");
+  if (options.implementationProvider && !definition.stages.some((stage) => stage.role === "implementer")) throw new Error(`Pipeline '${definition.id}' has no implementation stage to pin to '${options.implementationProvider}'.`);
+  if (options.reviewProvider && !definition.stages.some((stage) => stage.role === "reviewer")) throw new Error(`Pipeline '${definition.id}' has no review stage to pin to '${options.reviewProvider}'.`);
   const stateRoot = stateDirectoryFor(cwd);
   const record = await createRunRecord(stateRoot, "pipeline", definition.id, options.runId);
   record.state = "running"; await writeRunRecord(stateRoot, record);
@@ -71,7 +74,12 @@ async function runStage(
     const model = prior && config.models.find((candidate) => candidate.id === prior.model);
     if (model) excludedFamilies.add(model.family);
   }
-  const stageProfile: TaskProfile = { ...profile, role: stage.role, diversity: "none" };
+  const pinnedProvider = stage.role === "implementer" ? options.implementationProvider : stage.role === "reviewer" ? options.reviewProvider : undefined;
+  if (stage.role === "reviewer" && pinnedProvider && excludedFamilies.size) {
+    const hasIndependentFamily = config.models.some((model) => model.enabled && model.provider === pinnedProvider && !excludedFamilies.has(model.family));
+    if (!hasIndependentFamily) throw new Error(`Review provider '${pinnedProvider}' has no model family independent from the implementation worker. Choose a different --review-provider or omit it.`);
+  }
+  const stageProfile: TaskProfile = { ...profile, role: stage.role, diversity: "none", ...(pinnedProvider ? { allowedProviders: [pinnedProvider] } : {}) };
   const wantsWrite = !stage.readOnly && options.write === true;
   if (!stage.readOnly && !options.write) stageProfile.complexity = profile.complexity;
   const signal = options.signal;
@@ -79,8 +87,9 @@ async function runStage(
   if (wantsWrite) {
     const boundary: WriteBoundary = { allowedPaths: options.scope?.length ? options.scope : ["."] };
     assertSafeBoundary(boundary);
+    const allowWorktreeScopedWrite = boundary.allowedPaths.every((path) => path !== ".");
     const worktree = await createWorktree(cwd, runId, stage.id);
-    const run = await runSingle(".", config, providers, stagePrompt, worktree.worktree, stageProfile, { writeBoundary: boundary, excludedFamilies, stateRoot, ...(signal ? { signal } : {}), ...(lifecycle ? { lifecycle, workerId: stage.id } : {}) });
+    const run = await runSingle(".", config, providers, stagePrompt, worktree.worktree, stageProfile, { writeBoundary: boundary, ...(allowWorktreeScopedWrite ? { allowWorktreeScopedWrite: true } : {}), excludedFamilies, stateRoot, ...(signal ? { signal } : {}), ...(lifecycle ? { lifecycle, workerId: stage.id } : {}) });
     if (!run.result.success) throw new Error(run.result.error ?? `Write stage '${stage.id}' failed`);
     const verification = await verifyWriteBoundary(worktree.worktree, boundary, worktree.initialHead);
     return { id: stage.id, model: run.routing.selectedModel, output: compact(run), verification };
