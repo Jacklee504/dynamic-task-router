@@ -4,10 +4,22 @@ import { runFanout } from "./fanout.js";
 import { runSingle, type RoutedRun } from "./single.js";
 import { assertSafeBoundary, acquireWriteLock, releaseWriteLock, createWorktree, prepareInPlaceWrite, prepareBranchWrite, verifyWriteBoundary } from "../worktrees/manager.js";
 import { stateDirectoryFor } from "../state.js";
-import type { WriteMode, WriteVerification } from "../worktrees/types.js";
+import type { WorktreeHandle, WriteMode, WriteVerification } from "../worktrees/types.js";
 import type { PipelineDefinition, PipelineStage, Provider, ProviderId, TaskProfile, WorkerLifecycle, WriteBoundary } from "../types.js";
 
-export type PipelineOptions = { write?: boolean | undefined; writeMode?: WriteMode | undefined; branch?: string | undefined; scope?: string[] | undefined; implementationProvider?: ProviderId | undefined; reviewProvider?: ProviderId | undefined; runId?: string | undefined; signal?: AbortSignal | undefined; lifecycle?: WorkerLifecycle | undefined };
+export type PipelineOptions = {
+  files?: string[] | string | undefined;
+  write?: boolean | undefined;
+  writeMode?: WriteMode | undefined;
+  branch?: string | undefined;
+  scope?: string[] | undefined;
+  allowNoop?: boolean | undefined;
+  implementationProvider?: ProviderId | undefined;
+  reviewProvider?: ProviderId | undefined;
+  runId?: string | undefined;
+  signal?: AbortSignal | undefined;
+  lifecycle?: WorkerLifecycle | undefined;
+};
 export type PipelineStageResult = { id: string; model: string; output: string; verification?: WriteVerification };
 export type PipelineRun = { record: RunRecord; stages: PipelineStageResult[] };
 
@@ -32,7 +44,7 @@ export async function runPipeline(
     for (const stage of definition.stages) {
       if (stage.dependsOn?.some((id) => !results.has(id))) throw new Error(`Pipeline stage '${stage.id}' has unsatisfied dependency`);
       record.stages.push({ id: stage.id, state: "running" }); await writeRunRecord(stateRoot, record);
-      const outcome = await runStage(config, providers, stage, record.id, prompt, cwd, profile, results, options, stateRoot);
+      const outcome = await runStage(config, providers, stage, record.id, prompt, cwd, profile, results, options, stateRoot, record);
       results.set(stage.id, outcome);
       const state = record.stages.find((item) => item.id === stage.id)!;
       state.state = "succeeded"; state.model = outcome.model;
@@ -65,6 +77,7 @@ async function runStage(
   previous: Map<string, PipelineStageResult>,
   options: PipelineOptions,
   stateRoot: string,
+  record: RunRecord,
 ): Promise<PipelineStageResult> {
   const evidence = (stage.dependsOn ?? []).map((id) => previous.get(id)!).map((item) => `${item.id}: ${item.output.slice(0, 480)}`).join("\n");
   const stagePrompt = [`Objective: ${objective}`, `Stage: ${stage.id} (${stage.role}).`, evidence ? `Required prior-stage evidence:\n${evidence}` : "", "Return only the compact task-result contract."].filter(Boolean).join("\n\n");
@@ -90,32 +103,70 @@ async function runStage(
     const allowWorktreeScopedWrite = boundary.allowedPaths.every((path) => path !== ".");
     const effectiveMode: WriteMode = options.writeMode ?? (options.branch ? "branch" : "in-place");
     let lockPath: string | undefined;
-    let worktree;
-    if (effectiveMode === "in-place") {
-      lockPath = await acquireWriteLock(cwd, runId);
-      worktree = await prepareInPlaceWrite(cwd, runId, stage.id);
-    } else if (effectiveMode === "branch") {
-      lockPath = await acquireWriteLock(cwd, runId);
-      worktree = await prepareBranchWrite(cwd, runId, stage.id, options.branch ?? `dtr/${runId}-${stage.id}`);
-    } else {
-      worktree = await createWorktree(cwd, runId, stage.id);
-    }
-    console.error(`dtr: write mode=${worktree.mode} branch=${worktree.branch} base-head=${worktree.initialHead.slice(0, 12)} cwd=${worktree.worktree}`);
+    let worktree: WorktreeHandle | undefined;
     try {
-      const run = await runSingle(".", config, providers, stagePrompt, worktree.worktree, stageProfile, { writeBoundary: boundary, ...(allowWorktreeScopedWrite ? { allowWorktreeScopedWrite: true } : {}), excludedFamilies, stateRoot, ...(signal ? { signal } : {}), ...(lifecycle ? { lifecycle, workerId: stage.id } : {}) });
+      if (effectiveMode === "in-place") {
+        lockPath = await acquireWriteLock(cwd, runId);
+        worktree = await prepareInPlaceWrite(cwd, runId, stage.id);
+      } else if (effectiveMode === "branch") {
+        if (!options.branch) throw new Error("--branch requires a branch name");
+        worktree = await prepareBranchWrite(cwd, runId, stage.id, options.branch);
+      } else {
+        worktree = await createWorktree(cwd, runId, stage.id);
+      }
+
+      const stageRecord = record.stages.find((item) => item.id === stage.id);
+      if (stageRecord) {
+        stageRecord.writeMode = worktree.mode;
+        stageRecord.branch = worktree.branch;
+        stageRecord.cwd = worktree.worktree;
+        stageRecord.baseHead = worktree.initialHead;
+        stageRecord.scope = boundary.allowedPaths;
+      }
+      record.writeMode = worktree.mode;
+      record.branch = worktree.branch;
+      record.cwd = worktree.worktree;
+      record.baseHead = worktree.initialHead;
+      record.scope = boundary.allowedPaths;
+      await writeRunRecord(stateRoot, record);
+
+      console.error(`dtr: run=${runId}`);
+      console.error(`dtr: write mode=${worktree.mode}`);
+      console.error(`dtr: branch=${worktree.branch}`);
+      console.error(`dtr: base-head=${worktree.initialHead.slice(0, 12)}`);
+      console.error(`dtr: cwd=${worktree.worktree}`);
+      console.error(`dtr: scope=${boundary.allowedPaths.join(", ")}`);
+
+      const run = await runSingle(".", config, providers, stagePrompt, worktree.worktree, stageProfile, {
+        files: options.files,
+        writeBoundary: boundary,
+        writeMode: effectiveMode,
+        ...(allowWorktreeScopedWrite ? { allowWorktreeScopedWrite: true } : {}),
+        excludedFamilies,
+        stateRoot,
+        ...(signal ? { signal } : {}),
+        ...(lifecycle ? { lifecycle, workerId: stage.id } : {}),
+      });
       if (!run.result.success) throw new Error(run.result.error ?? `Write stage '${stage.id}' failed`);
       const verification = await verifyWriteBoundary(worktree.worktree, boundary, worktree.initialHead);
-      console.error(`dtr: changed paths=[${verification.changedPaths.join(", ")}] checks=[${verification.checks.map((c) => `${c.command}=${c.success ? "pass" : "fail"}`).join(", ")}]`);
+
+      if (stage.role === "implementer" && verification.changedPaths.length === 0 && !options.allowNoop) {
+        throw new Error(`Write stage '${stage.id}' produced no file changes (use --allow-noop if no-op is expected)`);
+      }
+
+      console.error(`dtr: changed paths=[${verification.changedPaths.join(", ")}]`);
+      console.error(`dtr: checks=[${verification.checks.map((c) => `${c.command}=${c.success ? "pass" : "fail"}`).join(", ")}]`);
+
       return { id: stage.id, model: run.routing.selectedModel, output: compact(run), verification };
     } finally {
-      if (lockPath) await releaseWriteLock(cwd);
+      if (lockPath) await releaseWriteLock(cwd, runId);
     }
   }
   if (stage.strategy === "fanout") {
-    const runs = await runFanout(".", config, providers, stagePrompt, cwd, { ...stageProfile, diversity: "medium" }, 2, signal, stateRoot, lifecycle);
+    const runs = await runFanout(".", config, providers, stagePrompt, cwd, { ...stageProfile, diversity: "medium" }, 2, signal, stateRoot, lifecycle, options.files);
     return { id: stage.id, model: runs.map((run) => run.model).join(","), output: runs.map((run) => run.result.output.slice(0, 240)).join("\n") };
   }
-  const run = await runSingle(".", config, providers, stagePrompt, cwd, stageProfile, { excludedFamilies, stateRoot, ...(signal ? { signal } : {}), ...(lifecycle ? { lifecycle, workerId: stage.id } : {}) });
+  const run = await runSingle(".", config, providers, stagePrompt, cwd, stageProfile, { files: options.files, excludedFamilies, stateRoot, ...(signal ? { signal } : {}), ...(lifecycle ? { lifecycle, workerId: stage.id } : {}) });
   if (!run.result.success) throw new Error(run.result.error ?? `Stage '${stage.id}' failed`);
   return { id: stage.id, model: run.routing.selectedModel, output: compact(run) };
 }

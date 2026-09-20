@@ -51,7 +51,7 @@ templates:
       - { id: review, role: reviewer, strategy: single, readOnly: true, dependsOn: [diagnose, independent], diversity: medium }
   - id: implement-review
     stages:
-      - { id: implement, role: implementer, strategy: single, readOnly: true }
+      - { id: implement, role: implementer, strategy: single, readOnly: false }
       - { id: review, role: reviewer, strategy: single, readOnly: true, dependsOn: [implement], diversity: medium }
 `;
 const config = parseConfig(models, policy, pipelines);
@@ -102,4 +102,58 @@ describe("MCP and pipelines", () => {
     const status = await readRunRecord(stateDirectoryFor(root), files.find((file) => file.endsWith(".status.json"))!.replace(".status.json", ""));
     expect(status).toMatchObject({ state: "failed" }); expect(calls).toHaveLength(1);
   });
+  it("persists write target metadata and releases lock safely", async () => {
+    const root = await gitRepo();
+    const calls: WorkerRequest[] = [];
+    const writeProvider: Provider = {
+      id: "codex",
+      health: async () => true,
+      run: async (request) => {
+        calls.push(request);
+        await (await import("node:fs/promises")).writeFile(join(request.cwd, "README.md"), "modified in write\n");
+        return { provider: "codex", model: request.model, requestedEffort: request.effort, output: "done", success: true, durationMs: 1 };
+      },
+    };
+    const run = await runPipeline(config, { claude: provider("claude", calls), codex: writeProvider }, "implement-review", "Implement changes", root, { role: "implementer", complexity: "normal", risk: "low", preferLocal: false, requireLocal: false, privacySensitive: false, diversity: "none", requiresTools: false }, { write: true, writeMode: "in-place", scope: ["README.md"] });
+    expect(run.record.state).toBe("succeeded");
+    expect(run.record.writeMode).toBe("in-place");
+    expect(run.record.branch).toBe("main");
+    expect(run.record.cwd).toBe(root);
+    expect(run.record.scope).toEqual(["README.md"]);
+    expect(run.record.stages[0]?.changedPaths).toEqual(["README.md"]);
+    expect(run.record.stages[0]?.checks?.[0]?.success).toBe(true);
+    const lockExists = (await import("node:fs")).existsSync(join(stateDirectoryFor(root), "write-lock.json"));
+    expect(lockExists).toBe(false);
+  });
+  it("handles no-op implementation: fails by default and allows with allowNoop", async () => {
+    const root = await gitRepo();
+    const noopProvider: Provider = {
+      id: "codex",
+      health: async () => true,
+      run: async (request) => {
+        return { provider: "codex", model: request.model, requestedEffort: request.effort, output: "no changes made", success: true, durationMs: 1 };
+      },
+    };
+    await expect(runPipeline(config, { claude: provider("claude", []), codex: noopProvider }, "implement-review", "Implement", root, { role: "implementer", complexity: "normal", risk: "low", preferLocal: false, requireLocal: false, privacySensitive: false, diversity: "none", requiresTools: false }, { write: true, writeMode: "in-place", scope: ["README.md"] })).rejects.toThrow("produced no file changes");
+    const lockExists = (await import("node:fs")).existsSync(join(stateDirectoryFor(root), "write-lock.json"));
+    expect(lockExists).toBe(false);
+
+    const allowed = await runPipeline(config, { claude: provider("claude", []), codex: noopProvider }, "implement-review", "Implement", root, { role: "implementer", complexity: "normal", risk: "low", preferLocal: false, requireLocal: false, privacySensitive: false, diversity: "none", requiresTools: false }, { write: true, writeMode: "in-place", scope: ["README.md"], allowNoop: true });
+    expect(allowed.record.state).toBe("succeeded");
+  });
 });
+
+async function gitRepo(): Promise<string> {
+  const root = await (await import("node:fs/promises")).mkdtemp(join(tmpdir(), "dtr-git-"));
+  directories.push(root, stateDirectoryFor(root));
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const exec = promisify(execFile);
+  await exec("git", ["init", "-b", "main", root]);
+  await exec("git", ["-C", root, "config", "user.email", "test@example.com"]);
+  await exec("git", ["-C", root, "config", "user.name", "DTR Test"]);
+  await (await import("node:fs/promises")).writeFile(join(root, "README.md"), "initial\n");
+  await exec("git", ["-C", root, "add", "."]);
+  await exec("git", ["-C", root, "commit", "-m", "initial"]);
+  return root;
+}
