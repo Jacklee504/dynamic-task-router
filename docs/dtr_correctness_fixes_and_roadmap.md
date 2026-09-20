@@ -1029,9 +1029,11 @@ dtr pipeline \
 
 ---
 
-# Resume Order After Part A
+# Completion
 
-Once all correctness fixes are complete, resume the roadmap in this order:
+All Part A fixes (A1–A12) and Part B roadmap steps (1–9) are implemented and
+committed on `main`; see the Part A status and Part B status sections above and
+the per-step details in `docs/dtr_implementation_record.md`.
 
 ```text
 2  context planner
@@ -1045,4 +1047,5 @@ Once all correctness fixes are complete, resume the roadmap in this order:
 9  skill simplification
 ```
 
-Steps 1 and 7 should be considered satisfied only when Part A's provider-capability and reusable-profile fixes are fully complete.
+Steps 1 and 7 were satisfied by Part A: step 1 by the provider-capability fixes
+(A6–A8), step 7 by the reusable-profile fix (A9).
