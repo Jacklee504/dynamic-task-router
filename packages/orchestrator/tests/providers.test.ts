@@ -72,6 +72,12 @@ describe("provider command construction", () => {
     expect(command.args.join(" ")).toContain("Read-only advisory task");
   });
 
+  it("passes explicitly selected native text attachments to OpenCode as --file", () => {
+    const command = createOpenCodeCommand({ ...request, attachments: ["src/parser.ts", "src/context.ts"] });
+    expect(command.args).toEqual(expect.arrayContaining(["--file", "src/parser.ts", "--file", "src/context.ts"]));
+    expect(command.args).toContain("--model");
+  });
+
   it("rejects a write-capable request before process execution", () => {
     expect(() => createCodexCommand({ ...request, readOnly: false })).toThrow("read-only");
   });
@@ -225,8 +231,8 @@ describe("provider capabilities", () => {
     expect(caps.workspaceRead).toBe(true);
     expect(caps.workspaceSearch).toBe(true);
     expect(caps.shellAccess).toBe(true);
-    expect(caps.nativeTextAttachments).toBe(true);
-    expect(caps.nativeImageAttachments).toBe(true);
+    expect(caps.nativeTextAttachments).toBe(false);
+    expect(caps.nativeImageAttachments).toBe(false);
     expect(caps.verifiedReadOnlyExecution).toBe(true);
     expect(caps.worktreeScopedWrite).toBe(false);
   });
@@ -237,7 +243,7 @@ describe("provider capabilities", () => {
     expect(caps.workspaceRead).toBe(true);
     expect(caps.workspaceSearch).toBe(true);
     expect(caps.shellAccess).toBe(true);
-    expect(caps.nativeTextAttachments).toBe(true);
+    expect(caps.nativeTextAttachments).toBe(false);
     expect(caps.nativeImageAttachments).toBe(false);
     expect(caps.verifiedReadOnlyExecution).toBe(true);
     expect(caps.worktreeScopedWrite).toBe(true);
@@ -249,7 +255,7 @@ describe("provider capabilities", () => {
     expect(caps.workspaceRead).toBe(true);
     expect(caps.workspaceSearch).toBe(true);
     expect(caps.shellAccess).toBe(true);
-    expect(caps.nativeTextAttachments).toBe(true);
+    expect(caps.nativeTextAttachments).toBe(false);
     expect(caps.nativeImageAttachments).toBe(false);
     expect(caps.verifiedReadOnlyExecution).toBe(true);
     expect(caps.worktreeScopedWrite).toBe(false);
@@ -285,13 +291,13 @@ describe("provider capabilities", () => {
     expect(caps.workspaceRead).toBe(true);
     expect(caps.workspaceSearch).toBe(true);
     expect(caps.shellAccess).toBe(true);
-    expect(caps.nativeTextAttachments).toBe(true);
+    expect(caps.nativeTextAttachments).toBe(false);
     expect(caps.nativeImageAttachments).toBe(false);
     expect(caps.verifiedReadOnlyExecution).toBe(true);
     expect(caps.worktreeScopedWrite).toBe(true);
   });
 
-  it("exposes OpenCode capabilities with workspace access", () => {
+  it("exposes OpenCode capabilities with workspace access and --file attachment transport", () => {
     const provider = new OpenCodeProvider(fakeRunner);
     const caps = provider.capabilities();
     expect(caps.workspaceRead).toBe(true);

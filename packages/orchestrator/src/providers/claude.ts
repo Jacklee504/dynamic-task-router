@@ -48,8 +48,8 @@ export class ClaudeProvider implements Provider {
       workspaceRead: true,
       workspaceSearch: true,
       shellAccess: true,
-      nativeTextAttachments: true,
-      nativeImageAttachments: true,
+      nativeTextAttachments: false,
+      nativeImageAttachments: false,
       verifiedReadOnlyExecution: true,
       worktreeScopedWrite: false,
     };

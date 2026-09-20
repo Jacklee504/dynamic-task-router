@@ -15,12 +15,12 @@ export function createOpenCodeCommand(request: WorkerRequest, executable = "open
   const advisory = request.readOnly
     ? "Read-only advisory task: inspect only. Do not edit, create, delete, stage, commit, install packages, or run destructive commands. Do not use auto-approval. Return the compact handoff."
     : "Work only inside the declared boundary and return the compact handoff.";
+  const fileArgs = (request.attachments ?? []).flatMap((file) => ["--file", file]);
   return {
     command: executable,
-    // Do not use --auto, --file, --continue, or a shared session. The model is
-    // the exact provider/model name reported by `opencode models`; --variant is
-    // the provider-specific reasoning-effort selector.
-    args: ["run", "--model", request.model, "--variant", request.effort, "--format", "json", "--dir", request.cwd, `${advisory}\n\n${request.prompt}`],
+    // The model is the exact provider/model name reported by `opencode models`;
+    // --variant is the provider-specific reasoning-effort selector.
+    args: ["run", "--model", request.model, "--variant", request.effort, "--format", "json", "--dir", request.cwd, ...fileArgs, `${advisory}\n\n${request.prompt}`],
   };
 }
 

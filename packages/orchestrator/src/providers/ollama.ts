@@ -46,7 +46,7 @@ export class OllamaProvider implements Provider {
       workspaceRead: true,
       workspaceSearch: true,
       shellAccess: true,
-      nativeTextAttachments: true,
+      nativeTextAttachments: false,
       nativeImageAttachments: false,
       verifiedReadOnlyExecution: true,
       worktreeScopedWrite: false,

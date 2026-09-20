@@ -38,7 +38,7 @@ export class CodexProvider implements Provider {
       workspaceRead: true,
       workspaceSearch: true,
       shellAccess: true,
-      nativeTextAttachments: true,
+      nativeTextAttachments: false,
       nativeImageAttachments: false,
       verifiedReadOnlyExecution: true,
       worktreeScopedWrite: true,
