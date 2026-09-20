@@ -82,6 +82,7 @@ export interface WorkerRequest {
   effort: Effort;
   readOnly: boolean;
   writeBoundary?: WriteBoundary;
+  attachments?: string[] | undefined;
   timeoutMs?: number;
   signal?: AbortSignal;
 }
