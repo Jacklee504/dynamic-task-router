@@ -17,6 +17,11 @@ It is a path list, not file content. DTR rejects absolute/traversal paths,
 oversized task text, `--prompt`, and `--include-files` on this normal route
 before any provider is called.
 
+Installed skills (`packages/codex/skills/dynamic-task-router/SKILL.md`) already
+embed the contract, so skill hosts can go straight to `dtr_run` or
+`dtr_dispatch` without a `dtr start` or `dtr_prepare` round-trip; the same
+validation runs inside `dtr_run`. <a id="dtr-run-inline-validation"/>
+
 The worker receives a normalized task packet and must return only `STATUS`,
 `PATHS`, `CHECK`, and `RISK`, capped at 120 words and 1,200 characters. This
 keeps a caller's routing explanation, parent reasoning, pasted source, raw
