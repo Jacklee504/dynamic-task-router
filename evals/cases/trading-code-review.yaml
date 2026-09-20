@@ -1,0 +1,6 @@
+id: trading-code-review
+role: reviewer
+prompt: "Review the trading order code for race conditions."
+expect:
+  inferred_complexity: normal
+  inferred_risk: medium

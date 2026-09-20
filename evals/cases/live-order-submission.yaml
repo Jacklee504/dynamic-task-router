@@ -1,0 +1,5 @@
+id: live-order-submission
+role: implementer
+prompt: "Implement changes to the live order submission path."
+expect:
+  inferred_risk: high

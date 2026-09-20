@@ -1,0 +1,6 @@
+id: isolated-keyword-why
+role: debugger
+prompt: "Explain why memoization changes runtime here."
+expect:
+  inferred_complexity: normal
+  inferred_risk: low

@@ -2,6 +2,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { parse } from "yaml";
 import type { RouterConfig } from "./config.js";
+import { classifyTask } from "./routing/classifier.js";
 import { effortIndex, selectEffort } from "./routing/effort.js";
 import { eligibleSelections, selectModel, selectionRejections } from "./routing/selector.js";
 import type { Effort, ProviderId, TaskProfile, WorkerRole } from "./types.js";
@@ -9,8 +10,9 @@ import type { Effort, ProviderId, TaskProfile, WorkerRole } from "./types.js";
 type EvalCase = {
   id: string;
   role: WorkerRole;
-  complexity: TaskProfile["complexity"];
-  risk: TaskProfile["risk"];
+  prompt?: string;
+  complexity?: TaskProfile["complexity"];
+  risk?: TaskProfile["risk"];
   diversity?: TaskProfile["diversity"];
   private_code?: boolean;
   local_only?: boolean;
@@ -19,6 +21,8 @@ type EvalCase = {
   allowed_families?: string[];
   allowed_providers?: ProviderId[];
   expect: {
+    inferred_complexity?: TaskProfile["complexity"];
+    inferred_risk?: TaskProfile["risk"];
     minimum_effort?: Effort;
     independent_family?: boolean;
     read_only?: boolean;
@@ -36,10 +40,11 @@ export async function loadEvalCases(directory: string): Promise<EvalCase[]> {
   return Promise.all(files.map(async (file) => parse(await readFile(resolve(directory, file), "utf8")) as EvalCase));
 }
 export function evaluateCase(config: RouterConfig, item: EvalCase): { id: string; pass: boolean; reasons: string[] } {
+  const inferred = item.prompt ? classifyTask(item.prompt, item.role) : undefined;
   const profile: TaskProfile = {
     role: item.role,
-    complexity: item.complexity,
-    risk: item.risk,
+    complexity: item.complexity ?? inferred?.complexity ?? "normal",
+    risk: item.risk ?? inferred?.risk ?? "low",
     preferLocal: false,
     requireLocal: item.local_only ?? false,
     privacySensitive: item.local_only ?? false,
@@ -54,6 +59,8 @@ export function evaluateCase(config: RouterConfig, item: EvalCase): { id: string
   const availability = Object.fromEntries(config.models.map((model) => [model.id, model.enabled])); const selection = selectModel(config, profile, availability);
   if (!selection) return { id: item.id, pass: false, reasons: Object.entries(selectionRejections(config, profile, availability)).map(([id, reasons]) => `${id}: ${reasons.join("; ")}`) };
   const model = config.models.find((candidate) => candidate.id === selection.model)!; const effort = selectEffort(config, model, profile); const reasons: string[] = [];
+  if (item.expect.inferred_complexity && inferred?.complexity !== item.expect.inferred_complexity) reasons.push(`inferred complexity '${inferred?.complexity ?? "?"}' does not match '${item.expect.inferred_complexity}'`);
+  if (item.expect.inferred_risk && inferred?.risk !== item.expect.inferred_risk) reasons.push(`inferred risk '${inferred?.risk ?? "?"}' does not match '${item.expect.inferred_risk}'`);
   if (item.expect.minimum_effort && effortIndex(effort.effective) < effortIndex(item.expect.minimum_effort)) reasons.push("below minimum effort");
   if (item.expect.local && !model.local) reasons.push("selected model is not local");
   if (item.expect.tools && !model.capabilities.tools) reasons.push("selected model lacks required tools");

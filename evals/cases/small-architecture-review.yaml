@@ -1,0 +1,6 @@
+id: small-architecture-review
+role: architect
+prompt: "Review the architecture of the import module for correctness."
+expect:
+  inferred_complexity: normal
+  inferred_risk: low

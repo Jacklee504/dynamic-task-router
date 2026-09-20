@@ -1,0 +1,6 @@
+id: destructive-operations
+role: architect
+prompt: "Plan removal of the legacy migration utility."
+expect:
+  inferred_complexity: extreme
+  inferred_risk: high
