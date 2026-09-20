@@ -198,6 +198,33 @@ describe("DtrApplication abort", () => {
   });
 });
 
+describe("DtrApplication async dispatch", () => {
+  it("returns the run ID promptly while the worker continues in the background", async () => {
+    const { configDir, cwd } = await scaffold();
+    const app = new DtrApplication(configDir, cwd, fakeProviders({ claude: { delayMs: 80 } }), null);
+    const startedAt = Date.now();
+    const dispatched = await app.dispatch({ prompt: "Review the src directory", role: "reviewer", cwd });
+    expect(dispatched.runId).toBeTruthy();
+    expect(Date.now() - startedAt).toBeLessThan(50);
+    const inFlight = await app.getRun(dispatched.runId);
+    expect(inFlight?.state).toBe("running");
+    await new Promise<void>((resolve) => setTimeout(resolve, 150));
+    const finished = await app.getRun(dispatched.runId);
+    expect(finished?.state).toBe("succeeded");
+  });
+
+  it("aborts a dispatched run through the shared controller", async () => {
+    const { configDir, cwd } = await scaffold();
+    const app = new DtrApplication(configDir, cwd, fakeProviders({ claude: { delayMs: 5_000 } }), null);
+    const dispatched = await app.dispatch({ prompt: "Review", role: "reviewer", cwd });
+    const result = await app.abort(dispatched.runId);
+    expect(result.accepted).toBe(true);
+    await new Promise<void>((resolve) => setTimeout(resolve, 120));
+    const stored = await app.getRun(dispatched.runId);
+    expect(stored?.state === "aborted" || stored?.state === "failed").toBe(true);
+  });
+});
+
 describe("DtrApplication failure record hygiene", () => {
   it("marks the stage and record failed when a provider throws", async () => {
     const { configDir, cwd } = await scaffold();

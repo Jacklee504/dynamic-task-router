@@ -2,6 +2,21 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import type { RunState } from "../types.js";
+import type { WriteMode } from "../worktrees/types.js";
+
+export interface RunStageRecord {
+  id: string;
+  state: RunState;
+  model?: string;
+  error?: string;
+  writeMode?: WriteMode;
+  branch?: string;
+  cwd?: string;
+  baseHead?: string;
+  scope?: string[];
+  changedPaths?: string[];
+  checks?: Array<{ command: string; success: boolean }>;
+}
 
 export interface RunRecord {
   id: string;
@@ -10,7 +25,12 @@ export interface RunRecord {
   template?: string;
   startedAt: string;
   endedAt?: string;
-  stages: Array<{ id: string; state: RunState; model?: string; error?: string; changedPaths?: string[]; checks?: Array<{ command: string; success: boolean }> }>;
+  writeMode?: WriteMode;
+  branch?: string;
+  cwd?: string;
+  baseHead?: string;
+  scope?: string[];
+  stages: RunStageRecord[];
   error?: string;
   outcome?: { status: "accepted" | "rejected" | "partial" | "escalated"; reviewFindingsCount?: number; regressionDetected?: boolean; manualScore?: number };
 }
