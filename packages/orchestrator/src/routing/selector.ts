@@ -1,9 +1,19 @@
 import type { ModelConfig, RouterConfig } from "../config.js";
+import { getProviderCapabilities } from "../providers/index.js";
 import { selectEffort } from "./effort.js";
-import type { ModelSelection, SelectionExplanation, TaskProfile } from "../types.js";
+import type { ModelSelection, Provider, SelectionExplanation, TaskProfile } from "../types.js";
+import type { WriteMode } from "../worktrees/types.js";
 
 export type Availability = Record<string, boolean | undefined>;
-export type SelectionOptions = { requireWrite?: boolean; allowWorktreeScopedWrite?: boolean; modelId?: string; excludedModels?: Set<string>; circuitOpenProviders?: Set<string> };
+export type SelectionOptions = {
+  requireWrite?: boolean | undefined;
+  writeMode?: WriteMode | undefined;
+  allowWorktreeScopedWrite?: boolean | undefined;
+  modelId?: string | undefined;
+  excludedModels?: Set<string> | undefined;
+  circuitOpenProviders?: Set<string> | undefined;
+  providers?: Record<string, Provider> | undefined;
+};
 const tiers = ["fast", "standard", "deep", "critical"] as const;
 type ModelTier = typeof tiers[number];
 
@@ -95,12 +105,20 @@ function gateReasons(
   if (task.privacySensitive && !model.local) reasons.push("privacy-sensitive task requires local model");
   if (task.allowRemote === false && !model.local) reasons.push("remote models are disallowed");
   if (task.privateCode && !model.privacy.privateCodeAllowed) reasons.push("private code is not approved for this model");
+  const provider = options.providers?.[model.provider];
+  const providerCaps = typeof provider?.capabilities === "function"
+    ? provider.capabilities()
+    : getProviderCapabilities(model.provider);
   if (task.allowedFamilies && !task.allowedFamilies.includes(model.family)) reasons.push("model family is not allowed");
   if (task.allowedProviders && !task.allowedProviders.includes(model.provider)) reasons.push("provider is not allowed");
-  if (task.requiresTools && !model.capabilities.tools) reasons.push("required tools unavailable");
-  if (options.requireWrite && !model.capabilities.writeSafe) {
-    if (!model.capabilities.worktreeScopedWrite) reasons.push("isolated write capability unavailable");
-    else if (!options.allowWorktreeScopedWrite) reasons.push("worktree-scoped write requires an explicit non-root scope");
+  if (task.requiresTools && (!model.capabilities.tools || !providerCaps.workspaceRead)) reasons.push("required tools unavailable");
+  if (options.requireWrite) {
+    if (options.writeMode === "in-place") {
+      if (!model.capabilities.writeSafe) reasons.push("in-place write capability unavailable");
+    } else if (!model.capabilities.writeSafe) {
+      if (!providerCaps.worktreeScopedWrite) reasons.push("isolated write capability unavailable");
+      else if (!options.allowWorktreeScopedWrite) reasons.push("worktree-scoped write requires an explicit non-root scope");
+    }
   }
   if (task.contextRequirement === "huge" && !model.capabilities.hugeContext) reasons.push("huge context unavailable");
   if (declaredRoleScore === undefined) reasons.push(`no declared score for role '${task.role}'`);

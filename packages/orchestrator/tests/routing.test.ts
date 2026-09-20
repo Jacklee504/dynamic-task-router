@@ -123,14 +123,18 @@ describe("routing policy", () => {
   it("fails closed for privacy-sensitive work when no local model is available", () => {
     expect(selectModel(config, profile({ privacySensitive: true }), { "qwen-local": false })).toBeUndefined();
   });
-  it("allows an opted-in worktree writer only with an explicit non-root scope", () => {
-    const scoped = structuredClone(config);
-    const writer = scoped.models.find((model) => model.id === "codex-build")!;
-    writer.capabilities.worktreeScopedWrite = true;
+  it("allows a provider opted into worktree-scoped writes only with an explicit non-root scope", () => {
     const implementation = profile({ role: "implementer" });
-    expect(selectModel(scoped, implementation, {}, new Set(), { requireWrite: true })).toBeUndefined();
-    expect(selectionRejections(scoped, implementation, {}, { requireWrite: true })["codex-build"]).toContain("worktree-scoped write requires an explicit non-root scope");
-    expect(selectModel(scoped, implementation, {}, new Set(), { requireWrite: true, allowWorktreeScopedWrite: true })?.model).toBe("codex-build");
+    const optedIn: Provider = {
+      id: "codex",
+      health: async () => true,
+      run: async () => ({ provider: "codex" as const, model: "build", requestedEffort: "low" as const, output: "", success: true, durationMs: 0 }),
+      capabilities: () => ({ workspaceRead: true, workspaceSearch: true, shellAccess: true, nativeTextAttachments: false, nativeImageAttachments: false, verifiedReadOnlyExecution: true, worktreeScopedWrite: true }),
+    };
+    const providers = { codex: optedIn };
+    expect(selectModel(config, implementation, {}, new Set(), { requireWrite: true, providers })).toBeUndefined();
+    expect(selectionRejections(config, implementation, {}, { requireWrite: true, providers })["codex-build"]).toContain("worktree-scoped write requires an explicit non-root scope");
+    expect(selectModel(config, implementation, {}, new Set(), { requireWrite: true, allowWorktreeScopedWrite: true, providers })?.model).toBe("codex-build");
   });
   it("rejects models with no declared score for the task role instead of selecting them with NaN scores", () => {
     const partial = structuredClone(config);

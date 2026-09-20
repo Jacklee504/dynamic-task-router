@@ -18,3 +18,18 @@ export function createProviders(runner: ProcessRunner): Record<ProviderId, Provi
     opencode: new OpenCodeProvider(runner),
   };
 }
+
+const DEFAULT_CAPABILITIES: Record<ProviderId, import("../types.js").ProviderCapabilities> = {
+  claude: { workspaceRead: true, workspaceSearch: true, shellAccess: true, nativeTextAttachments: false, nativeImageAttachments: false, verifiedReadOnlyExecution: true, worktreeScopedWrite: false },
+  codex: { workspaceRead: true, workspaceSearch: true, shellAccess: true, nativeTextAttachments: false, nativeImageAttachments: false, verifiedReadOnlyExecution: true, worktreeScopedWrite: true },
+  ollama: { workspaceRead: true, workspaceSearch: true, shellAccess: true, nativeTextAttachments: false, nativeImageAttachments: false, verifiedReadOnlyExecution: true, worktreeScopedWrite: false },
+  openrouter: { workspaceRead: false, workspaceSearch: false, shellAccess: false, nativeTextAttachments: false, nativeImageAttachments: false, verifiedReadOnlyExecution: true, worktreeScopedWrite: false },
+  featherless: { workspaceRead: false, workspaceSearch: false, shellAccess: false, nativeTextAttachments: false, nativeImageAttachments: false, verifiedReadOnlyExecution: true, worktreeScopedWrite: false },
+  antigravity: { workspaceRead: true, workspaceSearch: true, shellAccess: true, nativeTextAttachments: false, nativeImageAttachments: false, verifiedReadOnlyExecution: true, worktreeScopedWrite: true },
+  opencode: { workspaceRead: true, workspaceSearch: true, shellAccess: true, nativeTextAttachments: true, nativeImageAttachments: false, verifiedReadOnlyExecution: true, worktreeScopedWrite: false },
+};
+
+export function getProviderCapabilities(id: ProviderId): import("../types.js").ProviderCapabilities {
+  return DEFAULT_CAPABILITIES[id];
+}
+
