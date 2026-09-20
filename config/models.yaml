@@ -12,7 +12,7 @@ models:
     roles: { architect: 0, implementer: 0, debugger: 0, reviewer: 6, researcher: 8, test: 5, log-analysis: 7 }
     efforts: [low, medium, high]
     default_effort: low
-    capabilities: { tools: true, vision: false, huge_context: false, write_safe: true }
+    capabilities: { tools: true, vision: false, huge_context: false, write_safe: true, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: false, verified_read_only_execution: true }
     limits: { context_tokens: 200000 }
     cost: { input_per_million: 1.00, output_per_million: 5.00 }
     privacy: { private_code_allowed: true, training_opt_out_required: false }
@@ -26,7 +26,7 @@ models:
     roles: { architect: 8, implementer: 8, debugger: 8, reviewer: 9, researcher: 8, test: 8, log-analysis: 8 }
     efforts: [low, medium, high, max]
     default_effort: medium
-    capabilities: { tools: true, vision: true, huge_context: true, write_safe: true }
+    capabilities: { tools: true, vision: true, huge_context: true, write_safe: true, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: true, verified_read_only_execution: true }
     limits: { context_tokens: 200000 }
     cost: { input_per_million: 3.00, output_per_million: 15.00 }
     privacy: { private_code_allowed: true, training_opt_out_required: false }
@@ -40,7 +40,7 @@ models:
     roles: { architect: 10, implementer: 7, debugger: 9, reviewer: 10, researcher: 9, test: 7, log-analysis: 7 }
     efforts: [medium, high, max]
     default_effort: high
-    capabilities: { tools: true, vision: true, huge_context: true, write_safe: true }
+    capabilities: { tools: true, vision: true, huge_context: true, write_safe: true, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: true, verified_read_only_execution: true }
     limits: { context_tokens: 200000 }
     cost: { input_per_million: 15.00, output_per_million: 75.00 }
     privacy: { private_code_allowed: true, training_opt_out_required: false }
@@ -54,7 +54,7 @@ models:
     roles: { architect: 5, implementer: 8, debugger: 7, reviewer: 7, researcher: 7, test: 8, log-analysis: 8 }
     efforts: [low, medium, high, xhigh, max]
     default_effort: medium
-    capabilities: { tools: true, vision: false, huge_context: false, write_safe: true }
+    capabilities: { tools: true, vision: false, huge_context: false, write_safe: true, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: false, verified_read_only_execution: true, worktree_scoped_write: true }
     limits: { context_tokens: 128000 }
     cost: { input_per_million: 1.25, output_per_million: 10.00 }
     privacy: { private_code_allowed: true, training_opt_out_required: false }
@@ -68,7 +68,7 @@ models:
     roles: { architect: 9, implementer: 9, debugger: 9, reviewer: 10, researcher: 8, test: 9, log-analysis: 8 }
     efforts: [low, medium, high, xhigh, max]
     default_effort: high
-    capabilities: { tools: true, vision: false, huge_context: true, write_safe: true }
+    capabilities: { tools: true, vision: false, huge_context: true, write_safe: true, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: false, verified_read_only_execution: true, worktree_scoped_write: true }
     limits: { context_tokens: 400000 }
     cost: { input_per_million: 2.50, output_per_million: 10.00 }
     privacy: { private_code_allowed: true, training_opt_out_required: false }
@@ -82,7 +82,7 @@ models:
     roles: { architect: 10, implementer: 8, debugger: 10, reviewer: 10, researcher: 8, test: 8, log-analysis: 8 }
     efforts: [low, medium, high, xhigh, max]
     default_effort: high
-    capabilities: { tools: true, vision: false, huge_context: true, write_safe: true }
+    capabilities: { tools: true, vision: false, huge_context: true, write_safe: true, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: false, verified_read_only_execution: true, worktree_scoped_write: true }
     limits: { context_tokens: 400000 }
     cost: { input_per_million: 10.00, output_per_million: 40.00 }
     privacy: { private_code_allowed: true, training_opt_out_required: false }
@@ -96,7 +96,7 @@ models:
     roles: { architect: 4, implementer: 5, debugger: 5, reviewer: 6, researcher: 7, test: 7, log-analysis: 9 }
     efforts: [low, medium, high]
     default_effort: medium
-    capabilities: { tools: false, vision: false, huge_context: false, write_safe: false }
+    capabilities: { tools: false, vision: false, huge_context: false, write_safe: false, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: false, verified_read_only_execution: true }
     limits: { context_tokens: 4096 }
     cost: { input_per_million: 0, output_per_million: 0 }
     privacy: { private_code_allowed: true, training_opt_out_required: false }
@@ -110,7 +110,7 @@ models:
     roles: { architect: 4, implementer: 5, debugger: 5, reviewer: 5, researcher: 7, test: 6, log-analysis: 6 }
     efforts: [low, medium, high]
     default_effort: medium
-    capabilities: { tools: false, vision: false, huge_context: false, write_safe: false }
+    capabilities: { tools: false, vision: false, huge_context: false, write_safe: false, workspace_read: false, workspace_search: false, shell_access: false, native_text_attachments: false, native_image_attachments: false, verified_read_only_execution: true }
     limits: { context_tokens: 32768 }
     cost: { input_per_million: 0, output_per_million: 0 }
     privacy: { private_code_allowed: false, training_opt_out_required: true }
@@ -124,7 +124,7 @@ models:
     roles: { architect: 5, implementer: 6, debugger: 6, reviewer: 6, researcher: 7, test: 6, log-analysis: 6 }
     efforts: [low, medium, high]
     default_effort: medium
-    capabilities: { tools: false, vision: false, huge_context: false, write_safe: false }
+    capabilities: { tools: false, vision: false, huge_context: false, write_safe: false, workspace_read: false, workspace_search: false, shell_access: false, native_text_attachments: false, native_image_attachments: false, verified_read_only_execution: true }
     limits: { context_tokens: 32768 }
     cost: { input_per_million: 0.35, output_per_million: 0.40 }
     privacy: { private_code_allowed: false, training_opt_out_required: true }
@@ -140,7 +140,7 @@ models:
     roles: { architect: 3, implementer: 4, debugger: 4, reviewer: 5, researcher: 7, test: 5, log-analysis: 5 }
     efforts: [low, medium, high]
     default_effort: low
-    capabilities: { tools: false, vision: false, huge_context: true, write_safe: false }
+    capabilities: { tools: false, vision: false, huge_context: true, write_safe: false, workspace_read: false, workspace_search: false, shell_access: false, native_text_attachments: false, native_image_attachments: false, verified_read_only_execution: true }
     limits: { context_tokens: 200000 }
     cost: { input_per_million: 0, output_per_million: 0 }
     privacy: { private_code_allowed: false, training_opt_out_required: true }
@@ -156,7 +156,7 @@ models:
     roles: { architect: 4, implementer: 5, debugger: 5, reviewer: 6, researcher: 7, test: 5, log-analysis: 6 }
     efforts: [low, medium, high]
     default_effort: low
-    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, worktree_scoped_write: true }
+    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: false, verified_read_only_execution: true, worktree_scoped_write: true }
     limits: { context_tokens: 128000 }
     cost: { input_per_million: 0.30, output_per_million: 2.50 }
     privacy: { private_code_allowed: false, training_opt_out_required: true }
@@ -170,7 +170,7 @@ models:
     roles: { architect: 6, implementer: 7, debugger: 7, reviewer: 7, researcher: 8, test: 7, log-analysis: 7 }
     efforts: [low, medium, high]
     default_effort: medium
-    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, worktree_scoped_write: true }
+    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: false, verified_read_only_execution: true, worktree_scoped_write: true }
     limits: { context_tokens: 128000 }
     cost: { input_per_million: 0.30, output_per_million: 2.50 }
     privacy: { private_code_allowed: false, training_opt_out_required: true }
@@ -184,7 +184,7 @@ models:
     roles: { architect: 8, implementer: 8, debugger: 8, reviewer: 8, researcher: 8, test: 8, log-analysis: 8 }
     efforts: [medium, high]
     default_effort: high
-    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, worktree_scoped_write: true }
+    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: false, verified_read_only_execution: true, worktree_scoped_write: true }
     limits: { context_tokens: 128000 }
     cost: { input_per_million: 0.30, output_per_million: 2.50 }
     privacy: { private_code_allowed: false, training_opt_out_required: true }
@@ -198,7 +198,7 @@ models:
     roles: { architect: 4, implementer: 5, debugger: 5, reviewer: 6, researcher: 7, test: 5, log-analysis: 6 }
     efforts: [low, medium, high]
     default_effort: low
-    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, worktree_scoped_write: true }
+    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: false, verified_read_only_execution: true, worktree_scoped_write: true }
     limits: { context_tokens: 128000 }
     cost: { input_per_million: 0.30, output_per_million: 2.50 }
     privacy: { private_code_allowed: false, training_opt_out_required: true }
@@ -212,7 +212,7 @@ models:
     roles: { architect: 5, implementer: 6, debugger: 6, reviewer: 6, researcher: 7, test: 6, log-analysis: 6 }
     efforts: [low, medium, high]
     default_effort: medium
-    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, worktree_scoped_write: true }
+    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: false, verified_read_only_execution: true, worktree_scoped_write: true }
     limits: { context_tokens: 128000 }
     cost: { input_per_million: 0.30, output_per_million: 2.50 }
     privacy: { private_code_allowed: false, training_opt_out_required: true }
@@ -226,7 +226,7 @@ models:
     roles: { architect: 7, implementer: 7, debugger: 7, reviewer: 7, researcher: 7, test: 7, log-analysis: 7 }
     efforts: [medium, high]
     default_effort: high
-    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, worktree_scoped_write: true }
+    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: false, verified_read_only_execution: true, worktree_scoped_write: true }
     limits: { context_tokens: 128000 }
     cost: { input_per_million: 0.30, output_per_million: 2.50 }
     privacy: { private_code_allowed: false, training_opt_out_required: true }
@@ -240,7 +240,7 @@ models:
     roles: { architect: 3, implementer: 4, debugger: 4, reviewer: 5, researcher: 6, test: 5, log-analysis: 5 }
     efforts: [low, medium, high]
     default_effort: low
-    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, worktree_scoped_write: true }
+    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: false, verified_read_only_execution: true, worktree_scoped_write: true }
     limits: { context_tokens: 128000 }
     cost: { input_per_million: 0.30, output_per_million: 2.50 }
     privacy: { private_code_allowed: false, training_opt_out_required: true }
@@ -254,7 +254,7 @@ models:
     roles: { architect: 5, implementer: 6, debugger: 6, reviewer: 6, researcher: 7, test: 6, log-analysis: 6 }
     efforts: [low, medium, high]
     default_effort: medium
-    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, worktree_scoped_write: true }
+    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: false, verified_read_only_execution: true, worktree_scoped_write: true }
     limits: { context_tokens: 128000 }
     cost: { input_per_million: 0.30, output_per_million: 2.50 }
     privacy: { private_code_allowed: false, training_opt_out_required: true }
@@ -268,7 +268,7 @@ models:
     roles: { architect: 7, implementer: 7, debugger: 7, reviewer: 7, researcher: 7, test: 7, log-analysis: 7 }
     efforts: [medium, high]
     default_effort: high
-    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, worktree_scoped_write: true }
+    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: false, verified_read_only_execution: true, worktree_scoped_write: true }
     limits: { context_tokens: 128000 }
     cost: { input_per_million: 0.30, output_per_million: 2.50 }
     privacy: { private_code_allowed: false, training_opt_out_required: true }
@@ -282,7 +282,7 @@ models:
     roles: { architect: 8, implementer: 7, debugger: 8, reviewer: 8, researcher: 8, test: 7, log-analysis: 7 }
     efforts: [medium, high]
     default_effort: medium
-    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, worktree_scoped_write: true }
+    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: false, verified_read_only_execution: true, worktree_scoped_write: true }
     limits: { context_tokens: 128000 }
     cost: { input_per_million: 2.50, output_per_million: 15.00 }
     privacy: { private_code_allowed: false, training_opt_out_required: true }
@@ -296,7 +296,7 @@ models:
     roles: { architect: 9, implementer: 8, debugger: 9, reviewer: 9, researcher: 9, test: 7, log-analysis: 7 }
     efforts: [high, xhigh]
     default_effort: high
-    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, worktree_scoped_write: true }
+    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: false, verified_read_only_execution: true, worktree_scoped_write: true }
     limits: { context_tokens: 128000 }
     cost: { input_per_million: 2.50, output_per_million: 15.00 }
     privacy: { private_code_allowed: false, training_opt_out_required: true }
@@ -310,7 +310,7 @@ models:
     roles: { architect: 8, implementer: 8, debugger: 8, reviewer: 9, researcher: 8, test: 8, log-analysis: 8 }
     efforts: [medium, high]
     default_effort: high
-    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, worktree_scoped_write: true }
+    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: false, verified_read_only_execution: true, worktree_scoped_write: true }
     limits: { context_tokens: 128000 }
     cost: { input_per_million: 3.00, output_per_million: 15.00 }
     privacy: { private_code_allowed: false, training_opt_out_required: true }
@@ -324,7 +324,7 @@ models:
     roles: { architect: 10, implementer: 8, debugger: 9, reviewer: 10, researcher: 9, test: 7, log-analysis: 7 }
     efforts: [high, xhigh]
     default_effort: high
-    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, worktree_scoped_write: true }
+    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: false, verified_read_only_execution: true, worktree_scoped_write: true }
     limits: { context_tokens: 128000 }
     cost: { input_per_million: 15.00, output_per_million: 75.00 }
     privacy: { private_code_allowed: false, training_opt_out_required: true }
@@ -338,7 +338,7 @@ models:
     roles: { architect: 7, implementer: 8, debugger: 8, reviewer: 8, researcher: 8, test: 7, log-analysis: 7 }
     efforts: [medium, high]
     default_effort: medium
-    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, worktree_scoped_write: true }
+    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: false, verified_read_only_execution: true, worktree_scoped_write: true }
     limits: { context_tokens: 128000 }
     cost: { input_per_million: 0.90, output_per_million: 2.40 }
     privacy: { private_code_allowed: false, training_opt_out_required: true }

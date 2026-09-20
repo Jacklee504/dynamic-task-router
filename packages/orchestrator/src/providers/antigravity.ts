@@ -1,4 +1,4 @@
-import type { Command, ProcessRunner, Provider, WorkerRequest, WorkerResult } from "../types.js";
+import type { Command, ProcessRunner, Provider, ProviderCapabilities, WorkerRequest, WorkerResult } from "../types.js";
 import { commandAvailable, missingHelpFlags, resultFromProcess } from "./shared.js";
 
 /**
@@ -39,6 +39,18 @@ export class AntigravityProvider implements Provider {
     if (result.exitCode !== 0) return undefined;
     const models = new Set(result.stdout.split("\n").map((line) => line.trim().split(/\s+/)[0]).filter((value): value is string => typeof value === "string" && value.length > 0 && !value.startsWith("#")));
     return models.size ? models : undefined;
+  }
+
+  capabilities(): ProviderCapabilities {
+    return {
+      workspaceRead: true,
+      workspaceSearch: true,
+      shellAccess: true,
+      nativeTextAttachments: true,
+      nativeImageAttachments: false,
+      verifiedReadOnlyExecution: true,
+      worktreeScopedWrite: true,
+    };
   }
 
   async run(request: WorkerRequest): Promise<WorkerResult> {

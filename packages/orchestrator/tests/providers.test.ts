@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import { ClaudeProvider, createClaudeCommand } from "../src/providers/claude.js";
-import { createCodexCommand } from "../src/providers/codex.js";
+import { createCodexCommand, CodexProvider } from "../src/providers/codex.js";
 import { createOllamaCommand, OllamaProvider } from "../src/providers/ollama.js";
 import { FeatherlessProvider } from "../src/providers/featherless.js";
 import { AntigravityProvider, createAntigravityCommand } from "../src/providers/antigravity.js";
 import { OpenCodeProvider, createOpenCodeCommand, parseOpenCodeModels } from "../src/providers/opencode.js";
 import { OpenRouterProvider } from "../src/providers/openrouter.js";
 import { resolveCodexCommand, resultFromProcess } from "../src/providers/shared.js";
-import type { Command, ProcessResult, ProcessRunner, WorkerRequest } from "../src/types.js";
+import type { Command, ProcessResult, ProcessRunner, ProviderCapabilities, WorkerRequest } from "../src/types.js";
 
 const request: WorkerRequest = {
   prompt: "Review src/index.ts. Do not modify anything.",
@@ -213,5 +213,115 @@ describe("provider health and safety fallback", () => {
     ]));
     await expect(provider.availableModels("/workspace/project")).resolves.toEqual(new Set(["featherless/Qwen/Qwen3-32B", "ollama-local/qwen3.5:9b"]));
     expect(parseOpenCodeModels("heading\nnot/a model name\n")).toEqual(new Set(["not/a"]));
+  });
+});
+
+describe("provider capabilities", () => {
+  const fakeRunner = new FakeRunner();
+
+  it("exposes Claude CLI capabilities with workspace access and verified read-only", () => {
+    const provider = new ClaudeProvider(fakeRunner);
+    const caps = provider.capabilities();
+    expect(caps.workspaceRead).toBe(true);
+    expect(caps.workspaceSearch).toBe(true);
+    expect(caps.shellAccess).toBe(true);
+    expect(caps.nativeTextAttachments).toBe(true);
+    expect(caps.nativeImageAttachments).toBe(true);
+    expect(caps.verifiedReadOnlyExecution).toBe(true);
+    expect(caps.worktreeScopedWrite).toBe(false);
+  });
+
+  it("exposes Codex CLI capabilities with worktree-scoped write", () => {
+    const provider = new CodexProvider(fakeRunner);
+    const caps = provider.capabilities();
+    expect(caps.workspaceRead).toBe(true);
+    expect(caps.workspaceSearch).toBe(true);
+    expect(caps.shellAccess).toBe(true);
+    expect(caps.nativeTextAttachments).toBe(true);
+    expect(caps.nativeImageAttachments).toBe(false);
+    expect(caps.verifiedReadOnlyExecution).toBe(true);
+    expect(caps.worktreeScopedWrite).toBe(true);
+  });
+
+  it("exposes Ollama capabilities via Codex OSS with verified read-only", () => {
+    const provider = new OllamaProvider(fakeRunner);
+    const caps = provider.capabilities();
+    expect(caps.workspaceRead).toBe(true);
+    expect(caps.workspaceSearch).toBe(true);
+    expect(caps.shellAccess).toBe(true);
+    expect(caps.nativeTextAttachments).toBe(true);
+    expect(caps.nativeImageAttachments).toBe(false);
+    expect(caps.verifiedReadOnlyExecution).toBe(true);
+    expect(caps.worktreeScopedWrite).toBe(false);
+  });
+
+  it("exposes OpenRouter API capabilities as stateless read-only", () => {
+    const provider = new OpenRouterProvider("test-key");
+    const caps = provider.capabilities();
+    expect(caps.workspaceRead).toBe(false);
+    expect(caps.workspaceSearch).toBe(false);
+    expect(caps.shellAccess).toBe(false);
+    expect(caps.nativeTextAttachments).toBe(false);
+    expect(caps.nativeImageAttachments).toBe(false);
+    expect(caps.verifiedReadOnlyExecution).toBe(true);
+    expect(caps.worktreeScopedWrite).toBe(false);
+  });
+
+  it("exposes Featherless API capabilities as stateless read-only", () => {
+    const provider = new FeatherlessProvider("test-key");
+    const caps = provider.capabilities();
+    expect(caps.workspaceRead).toBe(false);
+    expect(caps.workspaceSearch).toBe(false);
+    expect(caps.shellAccess).toBe(false);
+    expect(caps.nativeTextAttachments).toBe(false);
+    expect(caps.nativeImageAttachments).toBe(false);
+    expect(caps.verifiedReadOnlyExecution).toBe(true);
+    expect(caps.worktreeScopedWrite).toBe(false);
+  });
+
+  it("exposes Antigravity CLI capabilities with worktree-scoped write", () => {
+    const provider = new AntigravityProvider(fakeRunner);
+    const caps = provider.capabilities();
+    expect(caps.workspaceRead).toBe(true);
+    expect(caps.workspaceSearch).toBe(true);
+    expect(caps.shellAccess).toBe(true);
+    expect(caps.nativeTextAttachments).toBe(true);
+    expect(caps.nativeImageAttachments).toBe(false);
+    expect(caps.verifiedReadOnlyExecution).toBe(true);
+    expect(caps.worktreeScopedWrite).toBe(true);
+  });
+
+  it("exposes OpenCode capabilities with workspace access", () => {
+    const provider = new OpenCodeProvider(fakeRunner);
+    const caps = provider.capabilities();
+    expect(caps.workspaceRead).toBe(true);
+    expect(caps.workspaceSearch).toBe(true);
+    expect(caps.shellAccess).toBe(true);
+    expect(caps.nativeTextAttachments).toBe(true);
+    expect(caps.nativeImageAttachments).toBe(false);
+    expect(caps.verifiedReadOnlyExecution).toBe(true);
+    expect(caps.worktreeScopedWrite).toBe(false);
+  });
+
+  it("all providers implement the complete ProviderCapabilities interface", () => {
+    const providers = [
+      new ClaudeProvider(fakeRunner),
+      new CodexProvider(fakeRunner),
+      new OllamaProvider(fakeRunner),
+      new OpenRouterProvider("test-key"),
+      new FeatherlessProvider("test-key"),
+      new AntigravityProvider(fakeRunner),
+      new OpenCodeProvider(fakeRunner),
+    ];
+    for (const provider of providers) {
+      const caps = provider.capabilities();
+      expect(typeof caps.workspaceRead).toBe("boolean");
+      expect(typeof caps.workspaceSearch).toBe("boolean");
+      expect(typeof caps.shellAccess).toBe("boolean");
+      expect(typeof caps.nativeTextAttachments).toBe("boolean");
+      expect(typeof caps.nativeImageAttachments).toBe("boolean");
+      expect(typeof caps.verifiedReadOnlyExecution).toBe("boolean");
+      expect(typeof caps.worktreeScopedWrite).toBe("boolean");
+    }
   });
 });

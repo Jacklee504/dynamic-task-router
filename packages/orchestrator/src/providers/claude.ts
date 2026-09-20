@@ -1,4 +1,4 @@
-import type { Command, ProcessRunner, Provider, WorkerRequest, WorkerResult } from "../types.js";
+import type { Command, ProcessRunner, Provider, ProviderCapabilities, WorkerRequest, WorkerResult } from "../types.js";
 import { commandAvailable, ensureReadOnly, helpCommand, missingHelpFlags, resultFromProcess } from "./shared.js";
 
 export function createClaudeCommand(request: WorkerRequest): Command {
@@ -41,6 +41,18 @@ export class ClaudeProvider implements Provider {
       this.runner.run(helpCommand("claude"), { cwd: process.cwd(), timeoutMs: 5_000 }),
     ]);
     return auth.exitCode === 0 && help.exitCode === 0 && missingHelpFlags(help, ["--permission-mode", "--max-turns"]).length === 0;
+  }
+
+  capabilities(): ProviderCapabilities {
+    return {
+      workspaceRead: true,
+      workspaceSearch: true,
+      shellAccess: true,
+      nativeTextAttachments: true,
+      nativeImageAttachments: true,
+      verifiedReadOnlyExecution: true,
+      worktreeScopedWrite: false,
+    };
   }
 
   async run(request: WorkerRequest): Promise<WorkerResult> {

@@ -1,4 +1,4 @@
-import type { Command, ProcessRunner, Provider, WorkerRequest, WorkerResult } from "../types.js";
+import type { Command, ProcessRunner, Provider, ProviderCapabilities, WorkerRequest, WorkerResult } from "../types.js";
 import { ensureReadOnly, missingHelpFlags, resolveCodexCommand, resultFromProcess } from "./shared.js";
 
 export function createOllamaCommand(request: WorkerRequest, executable = "codex"): Command {
@@ -39,6 +39,18 @@ export class OllamaProvider implements Provider {
     const result = await this.runner.run({ command: "ollama", args: ["list"] }, { cwd, timeoutMs: 5_000 });
     if (result.exitCode !== 0) return false;
     return result.stdout.split("\n").some((line) => line.trim().split(/\s+/)[0] === model);
+  }
+
+  capabilities(): ProviderCapabilities {
+    return {
+      workspaceRead: true,
+      workspaceSearch: true,
+      shellAccess: true,
+      nativeTextAttachments: true,
+      nativeImageAttachments: false,
+      verifiedReadOnlyExecution: true,
+      worktreeScopedWrite: false,
+    };
   }
 
   async run(request: WorkerRequest): Promise<WorkerResult> {

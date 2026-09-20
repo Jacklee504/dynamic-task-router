@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { truncateTaskResult } from "../contracts.js";
-import type { Provider, WorkerRequest, WorkerResult } from "../types.js";
+import type { Provider, ProviderCapabilities, WorkerRequest, WorkerResult } from "../types.js";
 
 const endpoint = "https://openrouter.ai/api/v1";
 
@@ -9,6 +9,19 @@ export class OpenRouterProvider implements Provider {
   readonly id = "openrouter" as const;
   constructor(private readonly apiKey = process.env.OPENROUTER_API_KEY, private readonly fetcher: typeof fetch = fetch) {}
   async health(): Promise<boolean> { return Boolean(this.apiKey); }
+
+  capabilities(): ProviderCapabilities {
+    return {
+      workspaceRead: false,
+      workspaceSearch: false,
+      shellAccess: false,
+      nativeTextAttachments: false,
+      nativeImageAttachments: false,
+      verifiedReadOnlyExecution: true,
+      worktreeScopedWrite: false,
+    };
+  }
+
   async run(request: WorkerRequest): Promise<WorkerResult> {
     if (!request.readOnly) return failed(request, "OpenRouter write workers are unsupported in this release.");
     if (!this.apiKey) return failed(request, "OpenRouter is disabled because no credential is available.");

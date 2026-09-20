@@ -1,4 +1,4 @@
-import type { Command, ProcessRunner, Provider, WorkerRequest, WorkerResult } from "../types.js";
+import type { Command, ProcessRunner, Provider, ProviderCapabilities, WorkerRequest, WorkerResult } from "../types.js";
 import { commandAvailable, missingHelpFlags, resultFromProcess } from "./shared.js";
 
 /**
@@ -41,6 +41,18 @@ export class OpenCodeProvider implements Provider {
     if (result.exitCode !== 0) return undefined;
     const models = parseOpenCodeModels(result.stdout);
     return models.size ? models : undefined;
+  }
+
+  capabilities(): ProviderCapabilities {
+    return {
+      workspaceRead: true,
+      workspaceSearch: true,
+      shellAccess: true,
+      nativeTextAttachments: true,
+      nativeImageAttachments: false,
+      verifiedReadOnlyExecution: true,
+      worktreeScopedWrite: false,
+    };
   }
 
   async run(request: WorkerRequest): Promise<WorkerResult> {

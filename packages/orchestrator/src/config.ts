@@ -37,6 +37,12 @@ const modelSchema = z.object({
     huge_context: z.boolean(),
     write_safe: z.boolean(),
     worktree_scoped_write: z.boolean().default(false),
+    workspace_read: z.boolean().default(true),
+    workspace_search: z.boolean().default(false),
+    shell_access: z.boolean().default(false),
+    native_text_attachments: z.boolean().default(false),
+    native_image_attachments: z.boolean().default(false),
+    verified_read_only_execution: z.boolean().default(false),
   }),
   limits: z.object({ context_tokens: z.number().int().positive() }).default({ context_tokens: 32_768 }),
   cost: z.object({ input_per_million: z.number().nonnegative(), output_per_million: z.number().nonnegative() }).default({ input_per_million: 0, output_per_million: 0 }),
@@ -156,7 +162,19 @@ export type ModelConfig = {
   roles: Record<WorkerRole, number>;
   efforts: Effort[];
   defaultEffort: Effort;
-  capabilities: { tools: boolean; vision: boolean; hugeContext: boolean; writeSafe: boolean; worktreeScopedWrite: boolean };
+  capabilities: {
+    tools: boolean;
+    vision: boolean;
+    hugeContext: boolean;
+    writeSafe: boolean;
+    worktreeScopedWrite: boolean;
+    workspaceRead: boolean;
+    workspaceSearch: boolean;
+    shellAccess: boolean;
+    nativeTextAttachments: boolean;
+    nativeImageAttachments: boolean;
+    verifiedReadOnlyExecution: boolean;
+  };
   limits: { contextTokens: number };
   cost: { inputPerMillion: number; outputPerMillion: number };
   privacy: { privateCodeAllowed: boolean; trainingOptOutRequired: boolean };
@@ -172,31 +190,37 @@ export function parseConfig(modelsText: string, policyText: string, pipelinesTex
   const models = modelsConfigSchema.parse(parse(modelsText));
   const policy = routingPolicySchema.parse(parse(policyText));
   const pipelines = pipelinesSchema.parse(parse(pipelinesText));
-  return {
-    models: models.models.map((model) => ({
-      id: model.id,
-      provider: model.provider,
-      family: model.family,
-      model: model.model,
-      tier: model.tier,
-      enabled: model.enabled,
-      local: model.local,
-      roles: model.roles,
-      efforts: model.efforts,
-      defaultEffort: model.default_effort,
-      capabilities: {
-        tools: model.capabilities.tools,
-        vision: model.capabilities.vision,
-        hugeContext: model.capabilities.huge_context,
-        writeSafe: model.capabilities.write_safe,
-        worktreeScopedWrite: model.capabilities.worktree_scoped_write,
-      },
-      limits: { contextTokens: model.limits.context_tokens },
-      cost: { inputPerMillion: model.cost.input_per_million, outputPerMillion: model.cost.output_per_million },
-      privacy: { privateCodeAllowed: model.privacy.private_code_allowed, trainingOptOutRequired: model.privacy.training_opt_out_required },
-    })),
-    policy, pipelines: pipelines.templates,
-  };
+return {
+      models: models.models.map((model) => ({
+        id: model.id,
+        provider: model.provider,
+        family: model.family,
+        model: model.model,
+        tier: model.tier,
+        enabled: model.enabled,
+        local: model.local,
+        roles: model.roles,
+        efforts: model.efforts,
+        defaultEffort: model.default_effort,
+        capabilities: {
+          tools: model.capabilities.tools,
+          vision: model.capabilities.vision,
+          hugeContext: model.capabilities.huge_context,
+          writeSafe: model.capabilities.write_safe,
+          worktreeScopedWrite: model.capabilities.worktree_scoped_write,
+          workspaceRead: model.capabilities.workspace_read ?? true,
+          workspaceSearch: model.capabilities.workspace_search ?? false,
+          shellAccess: model.capabilities.shell_access ?? false,
+          nativeTextAttachments: model.capabilities.native_text_attachments ?? false,
+          nativeImageAttachments: model.capabilities.native_image_attachments ?? false,
+          verifiedReadOnlyExecution: model.capabilities.verified_read_only_execution ?? false,
+        },
+        limits: { contextTokens: model.limits.context_tokens },
+        cost: { inputPerMillion: model.cost.input_per_million, outputPerMillion: model.cost.output_per_million },
+        privacy: { privateCodeAllowed: model.privacy.private_code_allowed, trainingOptOutRequired: model.privacy.training_opt_out_required },
+      })),
+      policy, pipelines: pipelines.templates,
+    };
 }
 
 /** Non-secret personal routing configuration. Never points at an env file. */

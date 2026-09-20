@@ -1,5 +1,5 @@
 import { truncateTaskResult } from "../contracts.js";
-import type { Provider, WorkerRequest, WorkerResult } from "../types.js";
+import type { Provider, ProviderCapabilities, WorkerRequest, WorkerResult } from "../types.js";
 
 const endpoint = "https://api.featherless.ai/v1";
 
@@ -8,6 +8,19 @@ export class FeatherlessProvider implements Provider {
   readonly id = "featherless" as const;
   constructor(private readonly apiKey = process.env.FEATHERLESS_API_KEY, private readonly fetcher: typeof fetch = fetch) {}
   async health(): Promise<boolean> { return Boolean(this.apiKey); }
+
+  capabilities(): ProviderCapabilities {
+    return {
+      workspaceRead: false,
+      workspaceSearch: false,
+      shellAccess: false,
+      nativeTextAttachments: false,
+      nativeImageAttachments: false,
+      verifiedReadOnlyExecution: true,
+      worktreeScopedWrite: false,
+    };
+  }
+
   async run(request: WorkerRequest): Promise<WorkerResult> {
     if (!request.readOnly) return failed(request, "Featherless write workers are unsupported in this release.");
     if (!this.apiKey) return failed(request, "Featherless is unavailable because no process credential is configured.");

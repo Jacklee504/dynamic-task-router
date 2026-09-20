@@ -1,4 +1,4 @@
-import type { Command, ProcessRunner, Provider, WorkerRequest, WorkerResult } from "../types.js";
+import type { Command, ProcessRunner, Provider, ProviderCapabilities, WorkerRequest, WorkerResult } from "../types.js";
 import { ensureReadOnly, missingHelpFlags, resolveCodexCommand, resultFromProcess } from "./shared.js";
 
 export function createCodexCommand(request: WorkerRequest, executable = "codex"): Command {
@@ -31,6 +31,18 @@ export class CodexProvider implements Provider {
 
   async health(): Promise<boolean> {
     return Boolean(await resolveCodexCommand(this.runner, process.cwd(), undefined, true));
+  }
+
+  capabilities(): ProviderCapabilities {
+    return {
+      workspaceRead: true,
+      workspaceSearch: true,
+      shellAccess: true,
+      nativeTextAttachments: true,
+      nativeImageAttachments: false,
+      verifiedReadOnlyExecution: true,
+      worktreeScopedWrite: true,
+    };
   }
 
   async run(request: WorkerRequest): Promise<WorkerResult> {

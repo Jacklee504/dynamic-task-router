@@ -110,10 +110,21 @@ export interface TokenUsage {
   costUsd?: number;
 }
 
+export interface ProviderCapabilities {
+  workspaceRead: boolean;
+  workspaceSearch: boolean;
+  shellAccess: boolean;
+  nativeTextAttachments: boolean;
+  nativeImageAttachments: boolean;
+  verifiedReadOnlyExecution: boolean;
+  worktreeScopedWrite: boolean;
+}
+
 export interface Provider {
   id: ProviderId;
   health(): Promise<boolean>;
   run(request: WorkerRequest): Promise<WorkerResult>;
+  capabilities(): ProviderCapabilities;
 }
 
 export interface WorkerLifecycle {
