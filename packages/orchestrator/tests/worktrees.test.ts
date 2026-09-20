@@ -1,10 +1,11 @@
 import { execFile } from "node:child_process";
 import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
-import { assertCleanGitRepository, createWorktree, verifyWriteBoundary } from "../src/worktrees/manager.js";
+import { assertCleanGitRepository, acquireWriteLock, releaseWriteLock, createWorktree, prepareInPlaceWrite, prepareBranchWrite, verifyWriteBoundary } from "../src/worktrees/manager.js";
 import { stateDirectoryFor } from "../src/state.js";
 
 const exec = promisify(execFile);
@@ -61,5 +62,80 @@ describe("isolated worktrees", () => {
     await exec("git", ["-C", committed.worktree, "add", "README.md"]);
     await exec("git", ["-C", committed.worktree, "commit", "-m", "not allowed"]);
     await expect(verifyWriteBoundary(committed.worktree, { allowedPaths: ["README.md"] }, committed.initialHead)).rejects.toThrow("Git commit");
+  });
+});
+
+describe("in-place write mode", () => {
+  it("creates a handle pointing to the repo with mode=in-place, branch, and initialHead", async () => {
+    const root = await repository();
+    const handle = await prepareInPlaceWrite(root, "run-ip-1", "implement");
+    expect(handle.mode).toBe("in-place");
+    expect(handle.worktree).toBe(root);
+    expect(handle.branch).toBe("main");
+    expect(handle.initialHead).toMatch(/^[0-9a-f]{40}$/);
+    const currentHead = (await exec("git", ["-C", root, "rev-parse", "HEAD"])).stdout.trim();
+    expect(handle.initialHead).toBe(currentHead);
+  });
+  it("requires a clean checkout", async () => {
+    const root = await repository();
+    await writeFile(join(root, "README.md"), "dirty\n");
+    await expect(prepareInPlaceWrite(root, "run-ip-2", "implement")).rejects.toThrow("uncommitted changes");
+  });
+  it("prevents concurrent in-place writers via lock", async () => {
+    const root = await repository();
+    const lockPath = await acquireWriteLock(root, "run-lock-1");
+    expect(existsSync(lockPath)).toBe(true);
+    await expect(acquireWriteLock(root, "run-lock-2")).rejects.toThrow("Concurrent in-place write blocked");
+    await releaseWriteLock(root);
+    expect(existsSync(lockPath)).toBe(false);
+    const lockPath2 = await acquireWriteLock(root, "run-lock-3");
+    expect(existsSync(lockPath2)).toBe(true);
+    await releaseWriteLock(root);
+  });
+  it("allows edits in-place and verifies boundary without creating a separate worktree", async () => {
+    const root = await repository();
+    const handle = await prepareInPlaceWrite(root, "run-ip-3", "implement");
+    await exec("mkdir", ["-p", join(root, "src")]);
+    await writeFile(join(root, "src", "worker.ts"), "export {};\n");
+    const verification = await verifyWriteBoundary(root, { allowedPaths: ["src"] }, handle.initialHead);
+    expect(verification.changedPaths).toContain("src/worker.ts");
+    expect(verification.checks[0]?.success).toBe(true);
+  });
+  it("rejects worker commits in in-place mode", async () => {
+    const root = await repository();
+    const handle = await prepareInPlaceWrite(root, "run-ip-4", "implement");
+    await writeFile(join(root, "README.md"), "changed\n");
+    await exec("git", ["-C", root, "add", "README.md"]);
+    await exec("git", ["-C", root, "commit", "-m", "not allowed"]);
+    await expect(verifyWriteBoundary(root, { allowedPaths: ["README.md"] }, handle.initialHead)).rejects.toThrow("Git commit");
+  });
+});
+
+describe("branch write mode", () => {
+  it("creates a branch and returns handle with mode=branch", async () => {
+    const root = await repository();
+    const handle = await prepareBranchWrite(root, "run-br-1", "implement", "feature-x");
+    expect(handle.mode).toBe("branch");
+    expect(handle.branch).toBe("feature-x");
+    expect(handle.worktree).toBe(root);
+    const currentBranch = (await exec("git", ["-C", root, "branch", "--show-current"])).stdout.trim();
+    expect(currentBranch).toBe("feature-x");
+  });
+  it("rejects if the branch is already checked out", async () => {
+    const root = await repository();
+    await expect(prepareBranchWrite(root, "run-br-2", "implement", "main")).rejects.toThrow("already checked out");
+  });
+  it("requires a clean checkout", async () => {
+    const root = await repository();
+    await writeFile(join(root, "README.md"), "dirty\n");
+    await expect(prepareBranchWrite(root, "run-br-3", "implement", "feature-y")).rejects.toThrow("uncommitted changes");
+  });
+  it("allows edits on the branch and verifies boundary", async () => {
+    const root = await repository();
+    const handle = await prepareBranchWrite(root, "run-br-4", "implement", "feature-z");
+    await writeFile(join(root, "README.md"), "changed on branch\n");
+    const verification = await verifyWriteBoundary(root, { allowedPaths: ["."] }, handle.initialHead);
+    expect(verification.changedPaths).toContain("README.md");
+    expect(verification.checks[0]?.success).toBe(true);
   });
 });

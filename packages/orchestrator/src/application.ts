@@ -17,6 +17,7 @@ import { runSingle } from "./strategies/single.js";
 import { buildCompactTaskPacket, compactTaskPrompt, normalizeRelevantFiles } from "./contracts.js";
 import { diagnoseProviders, type DoctorReport } from "./doctor.js";
 import { attachRunOutcome, createRunRecord, readRunRecord, writeRunRecord, type RunRecord } from "./telemetry/run-registry.js";
+import type { WriteMode } from "./worktrees/types.js";
 import type { Effort, Provider, ProviderId, TaskProfile, WorkerLifecycle, WorkerResult, WorkerRole } from "./types.js";
 export type { Effort, ProviderId, TaskProfile, WorkerResult, WorkerRole } from "./types.js";
 export type { RunRecord } from "./telemetry/run-registry.js";
@@ -141,14 +142,14 @@ export class DtrApplication {
     } finally { this.active.delete(record.id); }
   }
 
-  async pipeline(input: RunRequest & { template: string; write?: boolean; scope?: string[]; implementationProvider?: ProviderId; reviewProvider?: ProviderId }) {
+  async pipeline(input: RunRequest & { template: string; write?: boolean; writeMode?: WriteMode; branch?: string; scope?: string[]; implementationProvider?: ProviderId; reviewProvider?: ProviderId }) {
     if (input.provider || input.profile?.allowedProviders?.length) throw new Error("Pipeline-wide provider pins are unsupported. Use implementationProvider or reviewProvider instead.");
     const stateRoot = stateDirectoryFor(input.cwd || this.defaultCwd); const config = await this.config(); const record = await createRunRecord(stateRoot, "pipeline", input.template);
     const controller = new AbortController(); this.active.set(record.id, controller); this.emit({ type: "run-created", runId: record.id, task: safeTask(input.prompt), timestamp: record.startedAt });
     const lifecycle = this.forwardLifecycle(record.id);
     try {
       const profile = classifyTask(input.prompt, input.role, input.profile ?? {});
-      const result = await runPipeline(config, this.providers, input.template, buildCompactTaskPacket(input.prompt, input.files), input.cwd, profile, { write: input.write, scope: input.scope, implementationProvider: input.implementationProvider, reviewProvider: input.reviewProvider, runId: record.id, signal: controller.signal, lifecycle });
+      const result = await runPipeline(config, this.providers, input.template, buildCompactTaskPacket(input.prompt, input.files), input.cwd, profile, { write: input.write, writeMode: input.writeMode, branch: input.branch, scope: input.scope, implementationProvider: input.implementationProvider, reviewProvider: input.reviewProvider, runId: record.id, signal: controller.signal, lifecycle });
       this.emit({ type: "run-completed", runId: record.id, outcome: result.record.state, timestamp: now() });
       return result;
     } catch (error) {

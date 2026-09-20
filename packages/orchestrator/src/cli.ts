@@ -28,6 +28,7 @@ import { summarizeRuns } from "./stats.js";
 import { summarizeUsage } from "./telemetry/usage.js";
 import { diagnoseProviders } from "./doctor.js";
 import { appendExplicitFileContext } from "./context.js";
+import type { WriteMode } from "./worktrees/types.js";
 import type { Complexity, ContextRequirement, DiversityLevel, Effort, ProviderId, RiskLevel, TaskProfile, WorkerLifecycle, WorkerRequest, WorkerRole } from "./types.js";
 
 type Flags = Record<string, string | boolean>;
@@ -201,8 +202,12 @@ async function pipeline(flags: Flags, config: Awaited<ReturnType<typeof loadConf
   if (flags.provider !== undefined) throw new Error("`dtr pipeline` does not accept --provider because independent stages need different providers. Use --implementation-provider and/or --review-provider.");
   const task = requiredFlag(flags, "prompt"); const cwd = cwdFrom(flags); const prompt = await promptWithContext(flags, task, cwd); const template = requiredFlag(flags, "template"); const write = boolFlag(flags, "write");
   const scope = typeof flags.scope === "string" ? flags.scope.split(",").map((item) => item.trim()).filter(Boolean) : [];
+  const isolated = boolFlag(flags, "isolated");
+  const branchName = typeof flags.branch === "string" ? flags.branch : undefined;
+  const writeMode: WriteMode | undefined = isolated ? "isolated" : branchName ? "branch" : write ? "in-place" : undefined;
+  if (isolated && branchName) throw new Error("--isolated and --branch are mutually exclusive");
   const implementationProvider = optionalProviderFlag(flags, "implementation-provider"); const reviewProvider = optionalProviderFlag(flags, "review-provider");
-  const run = await runPipeline(config, providers, template, prompt, cwd, profileFrom(flags, task), { write, scope, implementationProvider, reviewProvider, lifecycle: cliProgress() });
+  const run = await runPipeline(config, providers, template, prompt, cwd, profileFrom(flags, task), { write, writeMode, branch: branchName, scope, implementationProvider, reviewProvider, lifecycle: cliProgress() });
   console.log(JSON.stringify({ runId: run.record.id, state: run.record.state, stages: run.record.stages }, null, 2)); return run.record.state === "succeeded" ? 0 : 1;
 }
 
@@ -263,7 +268,7 @@ function printUsage(stream: NodeJS.WriteStream = process.stderr): void {
     "Models: dtr models [--refresh] (or `dtr models refresh`); dtr opencode-models (OpenCode's unprofiled configured catalog)",
     "Select: dtr select --role <role> [--prompt <text>] [--complexity <level>] [--risk <level>] [--diversity <level>] [--provider <provider>]",
     "Fanout: dtr fanout --families <n> --role <role> --prompt <text> [profile flags]",
-    "Pipeline: dtr pipeline --template <name> --role <role> --prompt <text> [--write] [--scope path1,path2] [--implementation-provider <provider>] [--review-provider <provider>]",
+    "Pipeline: dtr pipeline --template <name> --role <role> --prompt <text> [--write] [--isolated] [--branch <name>] [--scope path1,path2] [--implementation-provider <provider>] [--review-provider <provider>]",
     "Usage: dtr usage [--cwd <repo>] (DTR execution telemetry; not account quota)",
     "Status: dtr status --run-id <uuid> [--cwd <repo>]",
     "Help: dtr --help; Version: dtr --version",

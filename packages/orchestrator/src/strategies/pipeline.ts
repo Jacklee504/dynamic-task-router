@@ -2,12 +2,12 @@ import type { RouterConfig } from "../config.js";
 import { createRunRecord, writeRunRecord, type RunRecord } from "../telemetry/run-registry.js";
 import { runFanout } from "./fanout.js";
 import { runSingle, type RoutedRun } from "./single.js";
-import { assertSafeBoundary, createWorktree, verifyWriteBoundary } from "../worktrees/manager.js";
+import { assertSafeBoundary, acquireWriteLock, releaseWriteLock, createWorktree, prepareInPlaceWrite, prepareBranchWrite, verifyWriteBoundary } from "../worktrees/manager.js";
 import { stateDirectoryFor } from "../state.js";
-import type { WriteVerification } from "../worktrees/types.js";
+import type { WriteMode, WriteVerification } from "../worktrees/types.js";
 import type { PipelineDefinition, PipelineStage, Provider, ProviderId, TaskProfile, WorkerLifecycle, WriteBoundary } from "../types.js";
 
-export type PipelineOptions = { write?: boolean | undefined; scope?: string[] | undefined; implementationProvider?: ProviderId | undefined; reviewProvider?: ProviderId | undefined; runId?: string | undefined; signal?: AbortSignal | undefined; lifecycle?: WorkerLifecycle | undefined };
+export type PipelineOptions = { write?: boolean | undefined; writeMode?: WriteMode | undefined; branch?: string | undefined; scope?: string[] | undefined; implementationProvider?: ProviderId | undefined; reviewProvider?: ProviderId | undefined; runId?: string | undefined; signal?: AbortSignal | undefined; lifecycle?: WorkerLifecycle | undefined };
 export type PipelineStageResult = { id: string; model: string; output: string; verification?: WriteVerification };
 export type PipelineRun = { record: RunRecord; stages: PipelineStageResult[] };
 
@@ -88,11 +88,28 @@ async function runStage(
     const boundary: WriteBoundary = { allowedPaths: options.scope?.length ? options.scope : ["."] };
     assertSafeBoundary(boundary);
     const allowWorktreeScopedWrite = boundary.allowedPaths.every((path) => path !== ".");
-    const worktree = await createWorktree(cwd, runId, stage.id);
-    const run = await runSingle(".", config, providers, stagePrompt, worktree.worktree, stageProfile, { writeBoundary: boundary, ...(allowWorktreeScopedWrite ? { allowWorktreeScopedWrite: true } : {}), excludedFamilies, stateRoot, ...(signal ? { signal } : {}), ...(lifecycle ? { lifecycle, workerId: stage.id } : {}) });
-    if (!run.result.success) throw new Error(run.result.error ?? `Write stage '${stage.id}' failed`);
-    const verification = await verifyWriteBoundary(worktree.worktree, boundary, worktree.initialHead);
-    return { id: stage.id, model: run.routing.selectedModel, output: compact(run), verification };
+    const effectiveMode: WriteMode = options.writeMode ?? (options.branch ? "branch" : "in-place");
+    let lockPath: string | undefined;
+    let worktree;
+    if (effectiveMode === "in-place") {
+      lockPath = await acquireWriteLock(cwd, runId);
+      worktree = await prepareInPlaceWrite(cwd, runId, stage.id);
+    } else if (effectiveMode === "branch") {
+      lockPath = await acquireWriteLock(cwd, runId);
+      worktree = await prepareBranchWrite(cwd, runId, stage.id, options.branch ?? `dtr/${runId}-${stage.id}`);
+    } else {
+      worktree = await createWorktree(cwd, runId, stage.id);
+    }
+    console.error(`dtr: write mode=${worktree.mode} branch=${worktree.branch} base-head=${worktree.initialHead.slice(0, 12)} cwd=${worktree.worktree}`);
+    try {
+      const run = await runSingle(".", config, providers, stagePrompt, worktree.worktree, stageProfile, { writeBoundary: boundary, ...(allowWorktreeScopedWrite ? { allowWorktreeScopedWrite: true } : {}), excludedFamilies, stateRoot, ...(signal ? { signal } : {}), ...(lifecycle ? { lifecycle, workerId: stage.id } : {}) });
+      if (!run.result.success) throw new Error(run.result.error ?? `Write stage '${stage.id}' failed`);
+      const verification = await verifyWriteBoundary(worktree.worktree, boundary, worktree.initialHead);
+      console.error(`dtr: changed paths=[${verification.changedPaths.join(", ")}] checks=[${verification.checks.map((c) => `${c.command}=${c.success ? "pass" : "fail"}`).join(", ")}]`);
+      return { id: stage.id, model: run.routing.selectedModel, output: compact(run), verification };
+    } finally {
+      if (lockPath) await releaseWriteLock(cwd);
+    }
   }
   if (stage.strategy === "fanout") {
     const runs = await runFanout(".", config, providers, stagePrompt, cwd, { ...stageProfile, diversity: "medium" }, 2, signal, stateRoot, lifecycle);
