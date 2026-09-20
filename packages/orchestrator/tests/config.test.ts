@@ -57,4 +57,50 @@ models:
     expect(() => mergeUserConfig(models, "version: 1\nmodels:\n  overrides:\n    - id: absent\n      enabled: false")).toThrow("unknown model");
     expect(() => mergeUserConfig(models, "version: 1\nmodels:\n  token: forbidden")).toThrow();
   });
+  it("expands reusable model profiles deterministically", () => {
+    const profiled = `
+version: 1
+profiles:
+  base-agy:
+    provider: antigravity
+    family: google
+    local: false
+    privacy: { private_code_allowed: false, training_opt_out_required: true }
+    limits: { context_tokens: 128000 }
+    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false }
+models:
+  - id: agy-1
+    profile: base-agy
+    model: gemini-flash
+    tier: fast
+    roles: { reviewer: 7 }
+    efforts: [low, medium]
+    default_effort: low
+`;
+    const parsed = parseConfig(profiled, policy);
+    expect(parsed.models[0]).toMatchObject({
+      id: "agy-1",
+      provider: "antigravity",
+      family: "google",
+      model: "gemini-flash",
+      tier: "fast",
+      roles: { reviewer: 7 },
+      capabilities: { tools: true, hugeContext: true },
+      limits: { contextTokens: 128000 },
+      privacy: { privateCodeAllowed: false, trainingOptOutRequired: true },
+    });
+  });
+  it("rejects unknown profile references", () => {
+    const invalid = `
+version: 1
+models:
+  - id: agy-1
+    profile: non-existent
+    model: gemini-flash
+    roles: { reviewer: 7 }
+    efforts: [low]
+    default_effort: low
+`;
+    expect(() => parseConfig(invalid, policy)).toThrow("references unknown profile 'non-existent'");
+  });
 });

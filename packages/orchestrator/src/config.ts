@@ -20,22 +20,96 @@ const roleSchema = z.enum([
   "log-analysis",
 ]);
 
-const modelSchema = z.object({
+const partialRolesSchema = z.object({
+  architect: z.number().int().min(0).max(10).optional(),
+  implementer: z.number().int().min(0).max(10).optional(),
+  debugger: z.number().int().min(0).max(10).optional(),
+  reviewer: z.number().int().min(0).max(10).optional(),
+  researcher: z.number().int().min(0).max(10).optional(),
+  test: z.number().int().min(0).max(10).optional(),
+  "log-analysis": z.number().int().min(0).max(10).optional(),
+});
+
+export const modelProfileSchema = z.object({
+  provider: providerSchema.optional(),
+  family: z.string().min(1).optional(),
+  model: z.string().min(1).optional(),
+  tier: modelTierSchema.optional(),
+  enabled: z.boolean().optional(),
+  local: z.boolean().optional(),
+  roles: partialRolesSchema.optional(),
+  efforts: z.array(effortSchema).min(1).optional(),
+  default_effort: effortSchema.optional(),
+  capabilities: z.object({
+    tools: z.boolean().optional(),
+    vision: z.boolean().optional(),
+    huge_context: z.boolean().optional(),
+    write_safe: z.boolean().optional(),
+    worktree_scoped_write: z.boolean().optional(),
+    workspace_read: z.boolean().optional(),
+    workspace_search: z.boolean().optional(),
+    shell_access: z.boolean().optional(),
+    native_text_attachments: z.boolean().optional(),
+    native_image_attachments: z.boolean().optional(),
+    verified_read_only_execution: z.boolean().optional(),
+  }).optional(),
+  limits: z.object({ context_tokens: z.number().int().positive() }).optional(),
+  cost: z.object({ input_per_million: z.number().nonnegative(), output_per_million: z.number().nonnegative() }).optional(),
+  privacy: z.object({ private_code_allowed: z.boolean(), training_opt_out_required: z.boolean() }).optional(),
+});
+
+const rawModelEntrySchema = z.object({
+  id: z.string().min(1),
+  profile: z.string().min(1).optional(),
+  provider: providerSchema.optional(),
+  family: z.string().min(1).optional(),
+  model: z.string().min(1).optional(),
+  tier: modelTierSchema.optional(),
+  enabled: z.boolean().optional(),
+  local: z.boolean().optional(),
+  roles: partialRolesSchema.optional(),
+  efforts: z.array(effortSchema).min(1).optional(),
+  default_effort: effortSchema.optional(),
+  capabilities: z.object({
+    tools: z.boolean().optional(),
+    vision: z.boolean().optional(),
+    huge_context: z.boolean().optional(),
+    write_safe: z.boolean().optional(),
+    worktree_scoped_write: z.boolean().optional(),
+    workspace_read: z.boolean().optional(),
+    workspace_search: z.boolean().optional(),
+    shell_access: z.boolean().optional(),
+    native_text_attachments: z.boolean().optional(),
+    native_image_attachments: z.boolean().optional(),
+    verified_read_only_execution: z.boolean().optional(),
+  }).optional(),
+  limits: z.object({ context_tokens: z.number().int().positive() }).optional(),
+  cost: z.object({ input_per_million: z.number().nonnegative(), output_per_million: z.number().nonnegative() }).optional(),
+  privacy: z.object({ private_code_allowed: z.boolean(), training_opt_out_required: z.boolean() }).optional(),
+});
+
+const rawModelsConfigSchema = z.object({
+  version: z.literal(1),
+  profiles: z.record(z.string(), modelProfileSchema).optional(),
+  models: z.array(rawModelEntrySchema).min(1),
+});
+
+export const modelSchema = z.object({
   id: z.string().min(1),
   provider: providerSchema,
   family: z.string().min(1),
   model: z.string().min(1),
   tier: modelTierSchema.default("standard"),
-  enabled: z.boolean(),
-  local: z.boolean(),
+  enabled: z.boolean().default(true),
+  local: z.boolean().default(false),
   roles: z.record(roleSchema, z.number().int().min(0).max(10)),
   efforts: z.array(effortSchema).min(1),
   default_effort: effortSchema,
   capabilities: z.object({
     tools: z.boolean(),
-    vision: z.boolean(),
-    huge_context: z.boolean(),
-    write_safe: z.boolean(),
+    vision: z.boolean().default(false),
+    huge_context: z.boolean().default(false),
+    write_safe: z.boolean().default(false),
     worktree_scoped_write: z.boolean().default(false),
     workspace_read: z.boolean().default(true),
     workspace_search: z.boolean().default(false),
@@ -56,7 +130,7 @@ const modelSchema = z.object({
   }
 });
 
-const modelsConfigSchema = z.object({
+export const modelsConfigSchema = z.object({
   version: z.literal(1),
   models: z.array(modelSchema).min(1),
 }).superRefine((config, context) => {
@@ -66,6 +140,50 @@ const modelsConfigSchema = z.object({
     ids.add(model.id);
   }
 });
+
+const defaultRoles: Record<WorkerRole, number> = {
+  architect: 0,
+  implementer: 0,
+  debugger: 0,
+  reviewer: 0,
+  researcher: 0,
+  test: 0,
+  "log-analysis": 0,
+};
+
+export function expandModelsConfig(parsed: unknown): z.infer<typeof modelsConfigSchema> {
+  const raw = rawModelsConfigSchema.parse(parsed);
+  const profiles = raw.profiles ?? {};
+  const expandedModels: unknown[] = [];
+
+  for (const entry of raw.models) {
+    if (entry.profile) {
+      const profile = profiles[entry.profile];
+      if (!profile) {
+        throw new Error(`Model '${entry.id}' references unknown profile '${entry.profile}'`);
+      }
+      const merged = {
+        ...profile,
+        ...entry,
+        roles: { ...defaultRoles, ...(profile.roles ?? {}), ...(entry.roles ?? {}) },
+        capabilities: { ...(profile.capabilities ?? {}), ...(entry.capabilities ?? {}) },
+        limits: entry.limits ?? profile.limits,
+        cost: entry.cost ?? profile.cost,
+        privacy: entry.privacy ?? profile.privacy,
+        efforts: entry.efforts ?? profile.efforts,
+        default_effort: entry.default_effort ?? profile.default_effort,
+      };
+      expandedModels.push(merged);
+    } else {
+      expandedModels.push({
+        ...entry,
+        roles: entry.roles ? { ...defaultRoles, ...entry.roles } : undefined,
+      });
+    }
+  }
+
+  return modelsConfigSchema.parse({ version: raw.version, models: expandedModels });
+}
 
 /**
  * Personal settings intentionally have no credential field. They can disable
@@ -187,40 +305,40 @@ export type RouterConfig = {
 };
 
 export function parseConfig(modelsText: string, policyText: string, pipelinesText = "version: 1\ntemplates:\n  - id: default\n    stages:\n      - id: stage\n        role: reviewer\n        strategy: single\n        readOnly: true"): RouterConfig {
-  const models = modelsConfigSchema.parse(parse(modelsText));
+  const models = expandModelsConfig(parse(modelsText));
   const policy = routingPolicySchema.parse(parse(policyText));
   const pipelines = pipelinesSchema.parse(parse(pipelinesText));
-return {
-      models: models.models.map((model) => ({
-        id: model.id,
-        provider: model.provider,
-        family: model.family,
-        model: model.model,
-        tier: model.tier,
-        enabled: model.enabled,
-        local: model.local,
-        roles: model.roles,
-        efforts: model.efforts,
-        defaultEffort: model.default_effort,
-        capabilities: {
-          tools: model.capabilities.tools,
-          vision: model.capabilities.vision,
-          hugeContext: model.capabilities.huge_context,
-          writeSafe: model.capabilities.write_safe,
-          worktreeScopedWrite: model.capabilities.worktree_scoped_write,
-          workspaceRead: model.capabilities.workspace_read ?? true,
-          workspaceSearch: model.capabilities.workspace_search ?? false,
-          shellAccess: model.capabilities.shell_access ?? false,
-          nativeTextAttachments: model.capabilities.native_text_attachments ?? false,
-          nativeImageAttachments: model.capabilities.native_image_attachments ?? false,
-          verifiedReadOnlyExecution: model.capabilities.verified_read_only_execution ?? false,
-        },
-        limits: { contextTokens: model.limits.context_tokens },
-        cost: { inputPerMillion: model.cost.input_per_million, outputPerMillion: model.cost.output_per_million },
-        privacy: { privateCodeAllowed: model.privacy.private_code_allowed, trainingOptOutRequired: model.privacy.training_opt_out_required },
-      })),
-      policy, pipelines: pipelines.templates,
-    };
+  return {
+    models: models.models.map((model) => ({
+      id: model.id,
+      provider: model.provider,
+      family: model.family,
+      model: model.model,
+      tier: model.tier,
+      enabled: model.enabled,
+      local: model.local,
+      roles: model.roles,
+      efforts: model.efforts,
+      defaultEffort: model.default_effort,
+      capabilities: {
+        tools: model.capabilities.tools,
+        vision: model.capabilities.vision,
+        hugeContext: model.capabilities.huge_context,
+        writeSafe: model.capabilities.write_safe,
+        worktreeScopedWrite: model.capabilities.worktree_scoped_write,
+        workspaceRead: model.capabilities.workspace_read ?? true,
+        workspaceSearch: model.capabilities.workspace_search ?? false,
+        shellAccess: model.capabilities.shell_access ?? false,
+        nativeTextAttachments: model.capabilities.native_text_attachments ?? false,
+        nativeImageAttachments: model.capabilities.native_image_attachments ?? false,
+        verifiedReadOnlyExecution: model.capabilities.verified_read_only_execution ?? false,
+      },
+      limits: { contextTokens: model.limits.context_tokens },
+      cost: { inputPerMillion: model.cost.input_per_million, outputPerMillion: model.cost.output_per_million },
+      privacy: { privateCodeAllowed: model.privacy.private_code_allowed, trainingOptOutRequired: model.privacy.training_opt_out_required },
+    })),
+    policy, pipelines: pipelines.templates,
+  };
 }
 
 /** Non-secret personal routing configuration. Never points at an env file. */
@@ -230,7 +348,7 @@ export function userConfigPath(): string {
 }
 
 export function mergeUserConfig(modelsText: string, userText: string): string {
-  const base = modelsConfigSchema.parse(parse(modelsText));
+  const base = expandModelsConfig(parse(modelsText));
   const overlay = userConfigSchema.parse(parse(userText));
   const models = base.models.map((model) => ({ ...model, roles: { ...model.roles }, efforts: [...model.efforts] }));
   for (const override of overlay.models.overrides) {
@@ -246,8 +364,6 @@ export function mergeUserConfig(modelsText: string, userText: string): string {
     if (models.some((model) => model.id === addition.id)) throw new Error(`Personal configuration duplicates model id '${addition.id}'`);
     models.push(addition);
   }
-  // Re-parse through the normal schema so an override cannot leave an invalid
-  // effort/default combination or an incomplete role map behind.
   return JSON.stringify(modelsConfigSchema.parse({ version: 1, models }));
 }
 
