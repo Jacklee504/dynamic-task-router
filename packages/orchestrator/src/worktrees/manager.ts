@@ -1,5 +1,4 @@
 import { mkdir, readFile, writeFile, unlink } from "node:fs/promises";
-import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -20,21 +19,87 @@ export async function assertCleanGitRepository(repo: string): Promise<void> {
   if (status.trim()) throw new Error("Refusing write worker: base repository has uncommitted changes");
 }
 
+export interface WriteLockData {
+  runId: string;
+  pid: number;
+  acquiredAt: string;
+  repo: string;
+}
+
 export async function acquireWriteLock(repo: string, runId: string): Promise<string> {
   const lockPath = resolve(stateDirectoryFor(repo), "write-lock.json");
   await mkdir(resolve(lockPath, ".."), { recursive: true, mode: 0o700 });
-  if (existsSync(lockPath)) {
-    const existing = JSON.parse(await readFile(lockPath, "utf8")) as { runId: string; acquiredAt: string };
+  const lockData: WriteLockData = {
+    runId,
+    pid: process.pid,
+    acquiredAt: new Date().toISOString(),
+    repo: resolve(repo),
+  };
+
+  try {
+    await writeFile(lockPath, JSON.stringify(lockData, null, 2), { flag: "wx", mode: 0o600 });
+    return lockPath;
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException)?.code !== "EEXIST") throw err;
+  }
+
+  let content: string;
+  try {
+    content = await readFile(lockPath, "utf8");
+  } catch (readError) {
+    throw new Error(`Concurrent in-place write blocked: write lock exists and cannot be read (${readError instanceof Error ? readError.message : String(readError)})`);
+  }
+
+  let existing: any;
+  try {
+    existing = JSON.parse(content);
+  } catch {
+    throw new Error("Concurrent in-place write blocked: write lock file is malformed");
+  }
+
+  if (!existing || typeof existing !== "object" || typeof existing.pid !== "number" || typeof existing.runId !== "string") {
+    throw new Error("Concurrent in-place write blocked: write lock contains invalid metadata");
+  }
+
+  if (isProcessAlive(existing.pid)) {
     throw new Error(`Concurrent in-place write blocked: run ${existing.runId} holds the lock (acquired ${existing.acquiredAt})`);
   }
-  const lock = { runId, acquiredAt: new Date().toISOString() };
-  await writeFile(lockPath, JSON.stringify(lock), { mode: 0o600 });
-  return lockPath;
+
+  try {
+    await unlink(lockPath);
+  } catch {
+    // lock was unlinked concurrently
+  }
+
+  try {
+    await writeFile(lockPath, JSON.stringify(lockData, null, 2), { flag: "wx", mode: 0o600 });
+    return lockPath;
+  } catch (retryErr: unknown) {
+    throw new Error(`Concurrent in-place write blocked: failed to acquire write lock after stale lock recovery (${retryErr instanceof Error ? retryErr.message : String(retryErr)})`);
+  }
 }
 
-export async function releaseWriteLock(repo: string): Promise<void> {
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error: unknown) {
+    return (error as NodeJS.ErrnoException)?.code === "EPERM";
+  }
+}
+
+export async function releaseWriteLock(repo: string, expectedRunId?: string): Promise<void> {
   const lockPath = resolve(stateDirectoryFor(repo), "write-lock.json");
-  try { await unlink(lockPath); } catch { /* lock may already be released */ }
+  try {
+    if (expectedRunId) {
+      const content = await readFile(lockPath, "utf8");
+      const existing = JSON.parse(content) as { runId?: string };
+      if (existing.runId && existing.runId !== expectedRunId) return;
+    }
+    await unlink(lockPath);
+  } catch {
+    /* lock may already be released or unreadable */
+  }
 }
 
 export async function createWorktree(repo: string, runId: string, workerId: string): Promise<WorktreeHandle> {
@@ -42,10 +107,9 @@ export async function createWorktree(repo: string, runId: string, workerId: stri
   assertSafeIdentifier(workerId, "worker ID");
   await assertCleanGitRepository(repo);
   const worktree = resolve(stateDirectoryFor(repo), "worktrees", runId, workerId);
-  const branch = `dtr/${runId}-${workerId}`;
   await mkdir(resolve(worktree, ".."), { recursive: true, mode: 0o700 });
-  await git(repo, ["worktree", "add", "-b", branch, worktree, "HEAD"]);
-  return { branch, worktree, runId, workerId, initialHead: (await git(worktree, ["rev-parse", "HEAD"])).trim(), mode: "isolated" };
+  await git(repo, ["worktree", "add", "--detach", worktree, "HEAD"]);
+  return { branch: "detached", worktree, runId, workerId, initialHead: (await git(worktree, ["rev-parse", "HEAD"])).trim(), mode: "isolated" };
 }
 
 export async function prepareInPlaceWrite(repo: string, runId: string, workerId: string): Promise<WorktreeHandle> {
@@ -60,12 +124,18 @@ export async function prepareInPlaceWrite(repo: string, runId: string, workerId:
 export async function prepareBranchWrite(repo: string, runId: string, workerId: string, branchName: string): Promise<WorktreeHandle> {
   assertSafeIdentifier(runId, "run ID");
   assertSafeIdentifier(workerId, "worker ID");
+  if (!branchName || typeof branchName !== "string" || branchName.startsWith("-") || branchName.includes("..") || /[\s~^:?*[\\]/.test(branchName)) {
+    throw new Error(`Invalid branch name: '${branchName}'`);
+  }
   await assertCleanGitRepository(repo);
   const currentBranch = (await git(repo, ["branch", "--show-current"])).trim();
-  if (currentBranch === branchName) throw new Error(`Branch '${branchName}' is already checked out`);
-  await git(repo, ["checkout", "-b", branchName]);
-  const initialHead = (await git(repo, ["rev-parse", "HEAD"])).trim();
-  return { branch: branchName, worktree: repo, runId, workerId, initialHead, mode: "branch" };
+  const existingBranches = (await git(repo, ["branch", "--list", branchName])).trim();
+  if (currentBranch === branchName || existingBranches) throw new Error(`Branch '${branchName}' already exists`);
+  const worktree = resolve(stateDirectoryFor(repo), "worktrees", runId, workerId);
+  await mkdir(resolve(worktree, ".."), { recursive: true, mode: 0o700 });
+  await git(repo, ["worktree", "add", "-b", branchName, worktree, "HEAD"]);
+  const initialHead = (await git(worktree, ["rev-parse", "HEAD"])).trim();
+  return { branch: branchName, worktree, runId, workerId, initialHead, mode: "branch" };
 }
 
 /** Reject out-of-scope changes, deletions, and worker-created commits. */
@@ -94,7 +164,7 @@ export async function removeDtrWorktree(repo: string, handle: WorktreeHandle): P
   assertSafeIdentifier(handle.workerId, "worker ID");
   if (handle.mode === "in-place" || handle.mode === "branch") return;
   const expected = resolve(stateDirectoryFor(repo), "worktrees", handle.runId, handle.workerId);
-  if (resolve(handle.worktree) !== expected || !handle.branch.startsWith(`dtr/${handle.runId}-`)) throw new Error("Refusing to remove a non-DTR worktree");
+  if (resolve(handle.worktree) !== expected) throw new Error("Refusing to remove a non-DTR worktree");
   await git(repo, ["worktree", "remove", handle.worktree]);
 }
 
