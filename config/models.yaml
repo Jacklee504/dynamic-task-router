@@ -1,6 +1,77 @@
 version: 1
 # These scores are hand-maintained routing priors, not benchmark claims.
 # 0 means the model is ineligible for that role; 10 is the strongest initial fit.
+
+profiles:
+  antigravity-gemini-flash:
+    provider: antigravity
+    family: google
+    local: false
+    privacy:
+      private_code_allowed: false
+      training_opt_out_required: true
+    limits:
+      context_tokens: 128000
+    cost:
+      input_per_million: 0.30
+      output_per_million: 2.50
+    capabilities:
+      tools: true
+      vision: false
+      huge_context: true
+      write_safe: false
+
+  antigravity-gemini-pro:
+    provider: antigravity
+    family: google
+    local: false
+    privacy:
+      private_code_allowed: false
+      training_opt_out_required: true
+    limits:
+      context_tokens: 128000
+    cost:
+      input_per_million: 2.50
+      output_per_million: 15.00
+    capabilities:
+      tools: true
+      vision: false
+      huge_context: true
+      write_safe: false
+
+  antigravity-claude:
+    provider: antigravity
+    family: anthropic
+    local: false
+    privacy:
+      private_code_allowed: false
+      training_opt_out_required: true
+    limits:
+      context_tokens: 128000
+    capabilities:
+      tools: true
+      vision: false
+      huge_context: true
+      write_safe: false
+
+  antigravity-gpt-oss:
+    provider: antigravity
+    family: gpt-oss
+    local: false
+    privacy:
+      private_code_allowed: false
+      training_opt_out_required: true
+    limits:
+      context_tokens: 128000
+    cost:
+      input_per_million: 0.90
+      output_per_million: 2.40
+    capabilities:
+      tools: true
+      vision: false
+      huge_context: true
+      write_safe: false
+
 models:
   - id: claude-haiku
     provider: claude
@@ -12,10 +83,11 @@ models:
     roles: { architect: 0, implementer: 0, debugger: 0, reviewer: 6, researcher: 8, test: 5, log-analysis: 7 }
     efforts: [low, medium, high]
     default_effort: low
-    capabilities: { tools: true, vision: false, huge_context: false, write_safe: true, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: false, verified_read_only_execution: true }
+    capabilities: { tools: true, vision: false, huge_context: false, write_safe: true }
     limits: { context_tokens: 200000 }
     cost: { input_per_million: 1.00, output_per_million: 5.00 }
     privacy: { private_code_allowed: true, training_opt_out_required: false }
+
   - id: claude-sonnet
     provider: claude
     family: anthropic
@@ -26,10 +98,11 @@ models:
     roles: { architect: 8, implementer: 8, debugger: 8, reviewer: 9, researcher: 8, test: 8, log-analysis: 8 }
     efforts: [low, medium, high, max]
     default_effort: medium
-    capabilities: { tools: true, vision: true, huge_context: true, write_safe: true, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: true, verified_read_only_execution: true }
+    capabilities: { tools: true, vision: true, huge_context: true, write_safe: true }
     limits: { context_tokens: 200000 }
     cost: { input_per_million: 3.00, output_per_million: 15.00 }
     privacy: { private_code_allowed: true, training_opt_out_required: false }
+
   - id: claude-opus
     provider: claude
     family: anthropic
@@ -40,10 +113,11 @@ models:
     roles: { architect: 10, implementer: 7, debugger: 9, reviewer: 10, researcher: 9, test: 7, log-analysis: 7 }
     efforts: [medium, high, max]
     default_effort: high
-    capabilities: { tools: true, vision: true, huge_context: true, write_safe: true, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: true, verified_read_only_execution: true }
+    capabilities: { tools: true, vision: true, huge_context: true, write_safe: true }
     limits: { context_tokens: 200000 }
     cost: { input_per_million: 15.00, output_per_million: 75.00 }
     privacy: { private_code_allowed: true, training_opt_out_required: false }
+
   - id: codex-luna
     provider: codex
     family: openai
@@ -54,10 +128,11 @@ models:
     roles: { architect: 5, implementer: 8, debugger: 7, reviewer: 7, researcher: 7, test: 8, log-analysis: 8 }
     efforts: [low, medium, high, xhigh, max]
     default_effort: medium
-    capabilities: { tools: true, vision: false, huge_context: false, write_safe: true, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: false, verified_read_only_execution: true, worktree_scoped_write: true }
+    capabilities: { tools: true, vision: false, huge_context: false, write_safe: true }
     limits: { context_tokens: 128000 }
     cost: { input_per_million: 1.25, output_per_million: 10.00 }
     privacy: { private_code_allowed: true, training_opt_out_required: false }
+
   - id: codex-terra
     provider: codex
     family: openai
@@ -68,10 +143,11 @@ models:
     roles: { architect: 9, implementer: 9, debugger: 9, reviewer: 10, researcher: 8, test: 9, log-analysis: 8 }
     efforts: [low, medium, high, xhigh, max]
     default_effort: high
-    capabilities: { tools: true, vision: false, huge_context: true, write_safe: true, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: false, verified_read_only_execution: true, worktree_scoped_write: true }
+    capabilities: { tools: true, vision: false, huge_context: true, write_safe: true }
     limits: { context_tokens: 400000 }
     cost: { input_per_million: 2.50, output_per_million: 10.00 }
     privacy: { private_code_allowed: true, training_opt_out_required: false }
+
   - id: codex-sol
     provider: codex
     family: openai
@@ -82,10 +158,11 @@ models:
     roles: { architect: 10, implementer: 8, debugger: 10, reviewer: 10, researcher: 8, test: 8, log-analysis: 8 }
     efforts: [low, medium, high, xhigh, max]
     default_effort: high
-    capabilities: { tools: true, vision: false, huge_context: true, write_safe: true, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: false, verified_read_only_execution: true, worktree_scoped_write: true }
+    capabilities: { tools: true, vision: false, huge_context: true, write_safe: true }
     limits: { context_tokens: 400000 }
     cost: { input_per_million: 10.00, output_per_million: 40.00 }
     privacy: { private_code_allowed: true, training_opt_out_required: false }
+
   - id: qwen-local
     provider: ollama
     family: qwen
@@ -96,10 +173,11 @@ models:
     roles: { architect: 4, implementer: 5, debugger: 5, reviewer: 6, researcher: 7, test: 7, log-analysis: 9 }
     efforts: [low, medium, high]
     default_effort: medium
-    capabilities: { tools: false, vision: false, huge_context: false, write_safe: false, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: false, verified_read_only_execution: true }
+    capabilities: { tools: false, vision: false, huge_context: false, write_safe: false }
     limits: { context_tokens: 4096 }
     cost: { input_per_million: 0, output_per_million: 0 }
     privacy: { private_code_allowed: true, training_opt_out_required: false }
+
   - id: openrouter-qwen-free
     provider: openrouter
     family: qwen
@@ -110,10 +188,11 @@ models:
     roles: { architect: 4, implementer: 5, debugger: 5, reviewer: 5, researcher: 7, test: 6, log-analysis: 6 }
     efforts: [low, medium, high]
     default_effort: medium
-    capabilities: { tools: false, vision: false, huge_context: false, write_safe: false, workspace_read: false, workspace_search: false, shell_access: false, native_text_attachments: false, native_image_attachments: false, verified_read_only_execution: true }
+    capabilities: { tools: false, vision: false, huge_context: false, write_safe: false }
     limits: { context_tokens: 32768 }
     cost: { input_per_million: 0, output_per_million: 0 }
     privacy: { private_code_allowed: false, training_opt_out_required: true }
+
   - id: featherless-qwen3-32b
     provider: featherless
     family: qwen
@@ -124,12 +203,11 @@ models:
     roles: { architect: 5, implementer: 6, debugger: 6, reviewer: 6, researcher: 7, test: 6, log-analysis: 6 }
     efforts: [low, medium, high]
     default_effort: medium
-    capabilities: { tools: false, vision: false, huge_context: false, write_safe: false, workspace_read: false, workspace_search: false, shell_access: false, native_text_attachments: false, native_image_attachments: false, verified_read_only_execution: true }
+    capabilities: { tools: false, vision: false, huge_context: false, write_safe: false }
     limits: { context_tokens: 32768 }
     cost: { input_per_million: 0.35, output_per_million: 0.40 }
     privacy: { private_code_allowed: false, training_opt_out_required: true }
-  # OpenRouter maintains this rotating free pool. It is deliberately one
-  # low-assurance tier; DTR reports the actual responding model in metadata.
+
   - id: openrouter-free
     provider: openrouter
     family: openrouter-free
@@ -140,205 +218,121 @@ models:
     roles: { architect: 3, implementer: 4, debugger: 4, reviewer: 5, researcher: 7, test: 5, log-analysis: 5 }
     efforts: [low, medium, high]
     default_effort: low
-    capabilities: { tools: false, vision: false, huge_context: true, write_safe: false, workspace_read: false, workspace_search: false, shell_access: false, native_text_attachments: false, native_image_attachments: false, verified_read_only_execution: true }
+    capabilities: { tools: false, vision: false, huge_context: true, write_safe: false }
     limits: { context_tokens: 200000 }
     cost: { input_per_million: 0, output_per_million: 0 }
     privacy: { private_code_allowed: false, training_opt_out_required: true }
-  # Account-backed Google Antigravity CLI. The model slug selects its native
-  # thinking variant; DTR effort remains routing metadata, not an agy flag.
+
   - id: antigravity-gemini-flash-low
-    provider: antigravity
-    family: google
+    profile: antigravity-gemini-flash
     model: gemini-3.8-flash-low
     tier: fast
-    enabled: true
-    local: false
     roles: { architect: 4, implementer: 5, debugger: 5, reviewer: 6, researcher: 7, test: 5, log-analysis: 6 }
     efforts: [low, medium, high]
     default_effort: low
-    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: false, verified_read_only_execution: true, worktree_scoped_write: true }
-    limits: { context_tokens: 128000 }
-    cost: { input_per_million: 0.30, output_per_million: 2.50 }
-    privacy: { private_code_allowed: false, training_opt_out_required: true }
+
   - id: antigravity-gemini-flash-medium
-    provider: antigravity
-    family: google
+    profile: antigravity-gemini-flash
     model: gemini-3.8-flash-medium
     tier: standard
-    enabled: true
-    local: false
     roles: { architect: 6, implementer: 7, debugger: 7, reviewer: 7, researcher: 8, test: 7, log-analysis: 7 }
     efforts: [low, medium, high]
     default_effort: medium
-    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: false, verified_read_only_execution: true, worktree_scoped_write: true }
-    limits: { context_tokens: 128000 }
-    cost: { input_per_million: 0.30, output_per_million: 2.50 }
-    privacy: { private_code_allowed: false, training_opt_out_required: true }
+
   - id: antigravity-gemini-flash-high
-    provider: antigravity
-    family: google
+    profile: antigravity-gemini-flash
     model: gemini-3.8-flash-high
     tier: deep
-    enabled: true
-    local: false
     roles: { architect: 8, implementer: 8, debugger: 8, reviewer: 8, researcher: 8, test: 8, log-analysis: 8 }
     efforts: [medium, high]
     default_effort: high
-    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: false, verified_read_only_execution: true, worktree_scoped_write: true }
-    limits: { context_tokens: 128000 }
-    cost: { input_per_million: 0.30, output_per_million: 2.50 }
-    privacy: { private_code_allowed: false, training_opt_out_required: true }
+
   - id: antigravity-gemini-37-flash-low
-    provider: antigravity
-    family: google
+    profile: antigravity-gemini-flash
     model: gemini-3.7-flash-low
     tier: fast
-    enabled: true
-    local: false
     roles: { architect: 4, implementer: 5, debugger: 5, reviewer: 6, researcher: 7, test: 5, log-analysis: 6 }
     efforts: [low, medium, high]
     default_effort: low
-    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: false, verified_read_only_execution: true, worktree_scoped_write: true }
-    limits: { context_tokens: 128000 }
-    cost: { input_per_million: 0.30, output_per_million: 2.50 }
-    privacy: { private_code_allowed: false, training_opt_out_required: true }
+
   - id: antigravity-gemini-37-flash-medium
-    provider: antigravity
-    family: google
+    profile: antigravity-gemini-flash
     model: gemini-3.7-flash-medium
     tier: standard
-    enabled: true
-    local: false
     roles: { architect: 5, implementer: 6, debugger: 6, reviewer: 6, researcher: 7, test: 6, log-analysis: 6 }
     efforts: [low, medium, high]
     default_effort: medium
-    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: false, verified_read_only_execution: true, worktree_scoped_write: true }
-    limits: { context_tokens: 128000 }
-    cost: { input_per_million: 0.30, output_per_million: 2.50 }
-    privacy: { private_code_allowed: false, training_opt_out_required: true }
+
   - id: antigravity-gemini-37-flash-high
-    provider: antigravity
-    family: google
+    profile: antigravity-gemini-flash
     model: gemini-3.7-flash-high
     tier: deep
-    enabled: true
-    local: false
     roles: { architect: 7, implementer: 7, debugger: 7, reviewer: 7, researcher: 7, test: 7, log-analysis: 7 }
     efforts: [medium, high]
     default_effort: high
-    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: false, verified_read_only_execution: true, worktree_scoped_write: true }
-    limits: { context_tokens: 128000 }
-    cost: { input_per_million: 0.30, output_per_million: 2.50 }
-    privacy: { private_code_allowed: false, training_opt_out_required: true }
+
   - id: antigravity-gemini-36-flash-low
-    provider: antigravity
-    family: google
+    profile: antigravity-gemini-flash
     model: gemini-3.6-flash-low
     tier: fast
-    enabled: true
-    local: false
     roles: { architect: 3, implementer: 4, debugger: 4, reviewer: 5, researcher: 6, test: 5, log-analysis: 5 }
     efforts: [low, medium, high]
     default_effort: low
-    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: false, verified_read_only_execution: true, worktree_scoped_write: true }
-    limits: { context_tokens: 128000 }
-    cost: { input_per_million: 0.30, output_per_million: 2.50 }
-    privacy: { private_code_allowed: false, training_opt_out_required: true }
+
   - id: antigravity-gemini-36-flash-medium
-    provider: antigravity
-    family: google
+    profile: antigravity-gemini-flash
     model: gemini-3.6-flash-medium
     tier: standard
-    enabled: true
-    local: false
     roles: { architect: 5, implementer: 6, debugger: 6, reviewer: 6, researcher: 7, test: 6, log-analysis: 6 }
     efforts: [low, medium, high]
     default_effort: medium
-    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: false, verified_read_only_execution: true, worktree_scoped_write: true }
-    limits: { context_tokens: 128000 }
-    cost: { input_per_million: 0.30, output_per_million: 2.50 }
-    privacy: { private_code_allowed: false, training_opt_out_required: true }
+
   - id: antigravity-gemini-36-flash-high
-    provider: antigravity
-    family: google
+    profile: antigravity-gemini-flash
     model: gemini-3.6-flash-high
     tier: deep
-    enabled: true
-    local: false
     roles: { architect: 7, implementer: 7, debugger: 7, reviewer: 7, researcher: 7, test: 7, log-analysis: 7 }
     efforts: [medium, high]
     default_effort: high
-    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: false, verified_read_only_execution: true, worktree_scoped_write: true }
-    limits: { context_tokens: 128000 }
-    cost: { input_per_million: 0.30, output_per_million: 2.50 }
-    privacy: { private_code_allowed: false, training_opt_out_required: true }
+
   - id: antigravity-gemini-pro-low
-    provider: antigravity
-    family: google
+    profile: antigravity-gemini-pro
     model: gemini-3.1-pro-low
     tier: deep
-    enabled: true
-    local: false
     roles: { architect: 8, implementer: 7, debugger: 8, reviewer: 8, researcher: 8, test: 7, log-analysis: 7 }
     efforts: [medium, high]
     default_effort: medium
-    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: false, verified_read_only_execution: true, worktree_scoped_write: true }
-    limits: { context_tokens: 128000 }
-    cost: { input_per_million: 2.50, output_per_million: 15.00 }
-    privacy: { private_code_allowed: false, training_opt_out_required: true }
+
   - id: antigravity-gemini-pro-high
-    provider: antigravity
-    family: google
+    profile: antigravity-gemini-pro
     model: gemini-3.1-pro-high
     tier: critical
-    enabled: true
-    local: false
     roles: { architect: 9, implementer: 8, debugger: 9, reviewer: 9, researcher: 9, test: 7, log-analysis: 7 }
     efforts: [high, xhigh]
     default_effort: high
-    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: false, verified_read_only_execution: true, worktree_scoped_write: true }
-    limits: { context_tokens: 128000 }
-    cost: { input_per_million: 2.50, output_per_million: 15.00 }
-    privacy: { private_code_allowed: false, training_opt_out_required: true }
+
   - id: antigravity-claude-sonnet
-    provider: antigravity
-    family: anthropic
+    profile: antigravity-claude
     model: claude-sonnet-4-6
     tier: deep
-    enabled: true
-    local: false
     roles: { architect: 8, implementer: 8, debugger: 8, reviewer: 9, researcher: 8, test: 8, log-analysis: 8 }
     efforts: [medium, high]
     default_effort: high
-    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: false, verified_read_only_execution: true, worktree_scoped_write: true }
-    limits: { context_tokens: 128000 }
     cost: { input_per_million: 3.00, output_per_million: 15.00 }
-    privacy: { private_code_allowed: false, training_opt_out_required: true }
+
   - id: antigravity-claude-opus
-    provider: antigravity
-    family: anthropic
+    profile: antigravity-claude
     model: claude-opus-4-6-thinking
     tier: critical
-    enabled: true
-    local: false
     roles: { architect: 10, implementer: 8, debugger: 9, reviewer: 10, researcher: 9, test: 7, log-analysis: 7 }
     efforts: [high, xhigh]
     default_effort: high
-    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: false, verified_read_only_execution: true, worktree_scoped_write: true }
-    limits: { context_tokens: 128000 }
     cost: { input_per_million: 15.00, output_per_million: 75.00 }
-    privacy: { private_code_allowed: false, training_opt_out_required: true }
+
   - id: antigravity-gpt-oss-120b
-    provider: antigravity
-    family: gpt-oss
+    profile: antigravity-gpt-oss
     model: gpt-oss-120b-medium
     tier: deep
-    enabled: true
-    local: false
     roles: { architect: 7, implementer: 8, debugger: 8, reviewer: 8, researcher: 8, test: 7, log-analysis: 7 }
     efforts: [medium, high]
     default_effort: medium
-    capabilities: { tools: true, vision: false, huge_context: true, write_safe: false, workspace_read: true, workspace_search: true, shell_access: true, native_text_attachments: true, native_image_attachments: false, verified_read_only_execution: true, worktree_scoped_write: true }
-    limits: { context_tokens: 128000 }
-    cost: { input_per_million: 0.90, output_per_million: 2.40 }
-    privacy: { private_code_allowed: false, training_opt_out_required: true }
