@@ -54,6 +54,7 @@ export async function main(argv: string[]): Promise<number> {
       if (subcommand && subcommand !== "refresh") throw new Error(`Unexpected argument: ${subcommand}`);
       return await (subcommand === "refresh" || flags.refresh ? refreshModels(app) : reportModels(app));
     }
+    if (command === "discover-models") return await discoverModels(app, flags);
     if (command === "opencode-models") return await reportOpenCodeModels(app["providers"], cwdFrom(flags));
     if (command === "run") return await runExplicit(configDir, flags, app);
     if (command === "select") return await selectOnly(app, flags);
@@ -135,6 +136,11 @@ async function refreshModels(app: DtrApplication): Promise<number> {
     console.log(JSON.stringify({ refreshed: false, stale: cached.stale, fetchedAt: cached.cache.fetchedAt, models: cached.cache.models.length }, null, 2));
     return 0;
   }
+}
+
+async function discoverModels(app: DtrApplication, flags: Flags): Promise<number> {
+  console.log(JSON.stringify(await app.discoverModels({ refresh: boolFlag(flags, "refresh") }), null, 2));
+  return 0;
 }
 
 async function runExplicit(configDir: string, flags: Flags, app: DtrApplication): Promise<number> {
@@ -307,7 +313,7 @@ function cliProgress(): WorkerLifecycle {
 function formatElapsed(elapsedMs: number): string { const seconds = Math.floor(elapsedMs / 1_000); return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`; }
 function printUsage(stream: NodeJS.WriteStream = process.stderr): void {
   const lines = [
-    "Usage: dtr <start|tui|health|doctor|config|models|opencode-models|run|select|route|fanout|pipeline|status|evaluate|stats|usage|outcome|help|version> [options]",
+    "Usage: dtr <start|tui|health|doctor|config|models|discover-models|opencode-models|run|select|route|fanout|pipeline|status|evaluate|stats|usage|outcome|help|version> [options]",
     "Start: dtr start  (print the compact dispatch contract; no model call)",
     "Route: dtr route --task <100-word task> [--files path1,path2] [--role <role>] [--provider <provider>] [profile flags]",
     "Run: dtr run --allow-raw-prompt --provider <provider> --model <model> --role <role> --prompt <text> (expert override)",
@@ -316,6 +322,7 @@ function printUsage(stream: NodeJS.WriteStream = process.stderr): void {
     "Config: dtr config (show the non-secret personal overlay path)",
     "TUI: dtr tui [--cwd <target-repository>]",
     "Models: dtr models [--refresh] (or `dtr models refresh`); dtr opencode-models (OpenCode's unprofiled configured catalog)",
+    "Discovery: dtr discover-models [--refresh] (catalogue comparison only; never edits routing config)",
     "Select: dtr select --role <role> [--prompt <text>] [--complexity <level>] [--risk <level>] [--diversity <level>] [--provider <provider>]",
     "Fanout: dtr fanout --families <n> --role <role> --prompt <text> [profile flags]",
     "Pipeline: dtr pipeline --template <name> --role <role> --prompt <text> [--write] [--isolated] [--branch <name>] [--scope path1,path2] [--allow-noop] [--implementation-provider <provider>] [--review-provider <provider>]",

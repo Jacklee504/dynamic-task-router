@@ -78,6 +78,16 @@ describe("provider command construction", () => {
     expect(command.args).toContain("--model");
   });
 
+  it("can refresh OpenCode's account-visible model catalogue without invoking a model", async () => {
+    const runner = new FakeRunner([
+      { stdout: "1.0.0", stderr: "", exitCode: 0, timedOut: false },
+      { stdout: "opencode/mimo-v2.5-free\n", stderr: "", exitCode: 0, timedOut: false },
+    ]);
+    const models = await new OpenCodeProvider(runner).availableModels("/workspace/project", true);
+    expect(models).toEqual(new Set(["opencode/mimo-v2.5-free"]));
+    expect(runner.calls.at(-1)).toEqual({ command: "opencode", args: ["models", "--refresh"] });
+  });
+
   it("rejects a write-capable request before process execution", () => {
     expect(() => createCodexCommand({ ...request, readOnly: false })).toThrow("read-only");
   });

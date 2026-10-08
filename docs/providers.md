@@ -111,8 +111,16 @@ any `.env` file, and it never copies API keys.
 ```sh
 opencode models
 dtr opencode-models
+dtr discover-models --refresh
 dtr doctor --verbose
 ```
+
+`dtr discover-models` combines account-visible OpenCode and Antigravity CLI
+catalogues with public models.dev metadata. `--refresh` refreshes OpenCode's
+catalogue before comparison. It is deliberately read-only: discovery never
+enables a model, changes its privacy classification, or assigns routing scores.
+The CLI catalogue remains the authority for account access; public catalogue
+entries are only candidates for a reviewed DTR profile.
 
 `dtr opencode-models` reports catalog identifiers in the exact
 `provider/model` form that OpenCode accepts. Discovery alone cannot determine

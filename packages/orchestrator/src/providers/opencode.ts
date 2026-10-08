@@ -34,10 +34,10 @@ export class OpenCodeProvider implements Provider {
   }
 
   /** Returns only catalog identifiers such as `featherless/Qwen/Qwen3-32B`. */
-  async availableModels(cwd: string): Promise<Set<string> | undefined> {
+  async availableModels(cwd: string, refresh = false): Promise<Set<string> | undefined> {
     const executable = await resolveOpenCodeCommand(this.runner, cwd);
     if (!executable) return undefined;
-    const result = await this.runner.run({ command: executable, args: ["models"] }, { cwd, timeoutMs: 10_000 });
+    const result = await this.runner.run({ command: executable, args: ["models", ...(refresh ? ["--refresh"] : [])] }, { cwd, timeoutMs: 15_000 });
     if (result.exitCode !== 0) return undefined;
     const models = parseOpenCodeModels(result.stdout);
     return models.size ? models : undefined;

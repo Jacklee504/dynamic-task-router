@@ -35,6 +35,7 @@ export type DtrEvent =
 
 import { readOpenRouterCatalog, refreshOpenRouterCatalog } from "./providers/openrouter.js";
 import { repositoryRootFromConfig } from "./config.js";
+import { discoverModels, type ModelDiscoveryReport } from "./model-discovery.js";
 
 export type SelectionRequest = {
   prompt: string;
@@ -91,6 +92,10 @@ export class DtrApplication {
   async readCatalog() {
     const root = stateDirectoryFor(repositoryRootFromConfig(this.configDir));
     return readOpenRouterCatalog(root);
+  }
+  /** Discover model catalogues without changing routing configuration. */
+  async discoverModels(options: { refresh?: boolean } = {}): Promise<ModelDiscoveryReport> {
+    return discoverModels(await this.config(), this.providers, this.defaultCwd, options);
   }
   async select(input: SelectionRequest) {
     const config = await this.config(); const profile = this.profile(input); const availability = await modelAvailability(config, this.providers);

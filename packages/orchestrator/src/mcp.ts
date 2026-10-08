@@ -63,6 +63,9 @@ export function createMcpServer(): McpServer {
   server.registerTool("dtr_models", { description: "List configured model routing metadata without credentials.", inputSchema: {} }, async () => {
     try { return text(await appFor(cwd(undefined)).listModels()); } catch (reason) { return error(reason); }
   });
+  server.registerTool("dtr_discover_models", { description: "Discover account-visible OpenCode and Antigravity models plus public models.dev candidates. refresh updates OpenCode's model cache and public metadata. Never edits routing configuration or invokes a model.", inputSchema: { cwd: z.string().min(1).max(2048).optional(), refresh: z.boolean().optional() } }, async (input) => {
+    try { return text(await appFor(cwd(input.cwd)).discoverModels({ refresh: input.refresh ?? false })); } catch (reason) { return error(reason); }
+  });
   server.registerTool("dtr_start", { description: "Return DTR's compact dispatch contract for humans or generic MCP clients that lack the installed skill. Installed DTR skills already contain this contract and do not need dtr_start. Does not invoke a model.", inputSchema: {} }, async () => text({ contract: DISPATCH_CONTRACT }));
   server.registerTool("dtr_doctor", { description: "Run safe, no-inference provider/auth diagnostics before dispatch. Returns only status metadata; never credential values.", inputSchema: { cwd: z.string().min(1).max(2048).optional() } }, async (input) => {
     try { return text(await appFor(cwd(input.cwd)).doctor()); } catch (reason) { return error(reason); }
