@@ -37,6 +37,15 @@ export type ModelDiscoveryReport = {
   sources: DiscoverySource[];
   runtime: DiscoveredModel[];
   catalog: { candidates: DiscoveredModel[]; omitted: number };
+  drift: {
+    newlyAvailable: DiscoveredModel[];
+    missingConfigured: Array<{ provider: ProviderId; model: string; profiles: string[] }>;
+    duplicateProfiles: Array<{ provider: ProviderId; model: string; profiles: string[] }>;
+  };
+  profileSuggestions: Array<{
+    starter: { id: string; provider: ProviderId; model: string; enabled: false };
+    reviewRequired: string[];
+  }>;
   guidance: string[];
 };
 
@@ -74,18 +83,72 @@ export async function discoverModels(
 
   const catalog = await discoverCatalog(config.models, options.fetcher ?? fetch);
   sources.push(catalog.source);
+  const drift = assessModelDrift(config.models, runtime, sources);
   return {
     generatedAt: new Date().toISOString(),
     refreshed: refresh,
     sources,
     runtime: runtime.sort(compareDiscovered),
     catalog: { candidates: catalog.candidates.slice(0, MAX_CATALOG_CANDIDATES), omitted: Math.max(0, catalog.candidates.length - MAX_CATALOG_CANDIDATES) },
+    drift,
+    profileSuggestions: profileSuggestions(config.models, drift.newlyAvailable),
     guidance: [
       "Runtime entries are account-aware but are not automatically routing profiles.",
+      "Missing profiles are compared only against successfully read CLI catalogs; a missing entry may reflect account or catalog changes.",
+      "Profile starters are incomplete and disabled. Review all required fields before adding a model to routing.",
       "Catalog candidates are public metadata only. Review privacy, access, cost, and routing scores before adding one.",
       "Claude aliases such as opus and sonnet are reported as covered-by-alias and do not need a version-specific profile.",
     ],
   };
+}
+
+export function assessModelDrift(
+  configured: ModelConfig[],
+  runtime: DiscoveredModel[],
+  sources: DiscoverySource[],
+): ModelDiscoveryReport["drift"] {
+  const available = new Set<ProviderId>();
+  for (const source of sources) {
+    if (source.status !== "available" && source.status !== "refreshed") continue;
+    if (source.id === "opencode-cli") available.add("opencode");
+    if (source.id === "antigravity-cli") available.add("antigravity");
+  }
+  const live = new Set(runtime.map((item) => `${item.provider}\0${item.model}`));
+  const groups = new Map<string, ModelConfig[]>();
+  for (const profile of configured) {
+    const key = `${profile.provider}\0${profile.model}`;
+    groups.set(key, [...(groups.get(key) ?? []), profile]);
+  }
+  const missingConfigured: ModelDiscoveryReport["drift"]["missingConfigured"] = [];
+  const duplicateProfiles: ModelDiscoveryReport["drift"]["duplicateProfiles"] = [];
+  for (const [key, profiles] of groups) {
+    const [provider, model] = key.split("\0") as [ProviderId, string];
+    const entry = { provider, model, profiles: profiles.map((profile) => profile.id).sort() };
+    if (available.has(provider) && !live.has(key)) missingConfigured.push(entry);
+    if (profiles.length > 1) duplicateProfiles.push(entry);
+  }
+  const compare = (a: { provider: ProviderId; model: string }, b: { provider: ProviderId; model: string }): number =>
+    `${a.provider}/${a.model}`.localeCompare(`${b.provider}/${b.model}`);
+  return {
+    newlyAvailable: runtime.filter((item) => item.coverage === "unprofiled").sort(compareDiscovered),
+    missingConfigured: missingConfigured.sort(compare),
+    duplicateProfiles: duplicateProfiles.sort(compare),
+  };
+}
+
+function profileSuggestions(configured: ModelConfig[], candidates: DiscoveredModel[]): ModelDiscoveryReport["profileSuggestions"] {
+  const ids = new Set(configured.map((profile) => profile.id));
+  return candidates.map((candidate) => {
+    const model = candidate.model.startsWith(`${candidate.provider}/`) ? candidate.model.slice(candidate.provider.length + 1) : candidate.model;
+    const base = `${candidate.provider}-${model}`.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    let id = base;
+    for (let suffix = 2; ids.has(id); suffix++) id = `${base}-${suffix}`;
+    ids.add(id);
+    return {
+      starter: { id, provider: candidate.provider, model: candidate.model, enabled: false as const },
+      reviewRequired: ["family", "tier", "roles", "efforts", "default_effort", "capabilities", "limits", "cost", "privacy"],
+    };
+  });
 }
 
 async function discoverCatalog(configured: ModelConfig[], fetcher: typeof fetch): Promise<{ source: DiscoverySource; candidates: DiscoveredModel[] }> {

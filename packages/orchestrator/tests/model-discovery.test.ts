@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { parseConfig } from "../src/config.js";
-import { discoverModels, parseModelsDevCatalog } from "../src/model-discovery.js";
-import type { Provider, ProviderCapabilities, ProviderId } from "../src/types.js";
+import { assessModelDrift, discoverModels, parseModelsDevCatalog } from "../src/model-discovery.js";
+import { OpenCodeProvider } from "../src/providers/opencode.js";
+import type { ProcessRunner, Provider, ProviderCapabilities, ProviderId } from "../src/types.js";
 
 const models = `
 version: 1
@@ -73,5 +74,39 @@ describe("model discovery", () => {
     expect(report.catalog.candidates.find((item) => item.model === "gpt-5.6-luna")).toBeUndefined();
     expect(report.catalog.candidates.find((item) => item.model === "claude-opus-5")).toBeUndefined();
     expect(report.sources.find((item) => item.id === "models.dev")).toMatchObject({ status: "refreshed" });
+    expect(report.drift.missingConfigured).toEqual([]);
+    expect(report.profileSuggestions).toEqual([]);
+  });
+
+  it("reports new, missing, and duplicate runtime profiles only when a CLI catalog was read", () => {
+    const configured = parseConfig(models, policy).models;
+    const duplicate = { ...configured[0]!, id: "codex-luna-copy" };
+    const oldOpenCode = { ...configured[0]!, id: "opencode-old", provider: "opencode" as const, model: "opencode/old" };
+    const oldAntigravity = { ...configured[0]!, id: "agy-old", provider: "antigravity" as const, model: "agy-old" };
+    const runtime = [{ provider: "opencode" as const, model: "opencode/new", source: "runtime" as const, coverage: "unprofiled" as const, profiles: [] }];
+    const drift = assessModelDrift([...configured, duplicate, oldOpenCode, oldAntigravity], runtime, [
+      { id: "opencode-cli", status: "available", models: 1 },
+      { id: "antigravity-cli", status: "unavailable" },
+      { id: "models.dev", status: "refreshed" },
+    ]);
+    expect(drift.newlyAvailable).toEqual(runtime);
+    expect(drift.missingConfigured).toEqual([{ provider: "opencode", model: "opencode/old", profiles: ["opencode-old"] }]);
+    expect(drift.duplicateProfiles).toEqual([{ provider: "codex", model: "gpt-5.6-luna", profiles: ["codex-luna", "codex-luna-copy"] }]);
+  });
+
+  it("suggests disabled, incomplete starters for newly visible account models", async () => {
+    const runner: ProcessRunner = { run: async (command) => ({
+      stdout: command.args[0] === "models" ? "opencode/new-model\nopencode/other\n" : "opencode 1.0",
+      stderr: "", exitCode: 0, timedOut: false,
+    }) };
+    const config = parseConfig(models, policy);
+    const report = await discoverModels(config, { ...providers, opencode: new OpenCodeProvider(runner) }, "/tmp", {
+      fetcher: async () => new Response(JSON.stringify({})),
+    });
+    expect(report.drift.newlyAvailable.map((item) => item.model)).toEqual(["opencode/new-model", "opencode/other"]);
+    expect(report.profileSuggestions).toEqual([
+      expect.objectContaining({ starter: { id: "opencode-new-model", provider: "opencode", model: "opencode/new-model", enabled: false }, reviewRequired: expect.arrayContaining(["roles", "privacy", "cost"]) }),
+      expect.objectContaining({ starter: { id: "opencode-other", provider: "opencode", model: "opencode/other", enabled: false } }),
+    ]);
   });
 });

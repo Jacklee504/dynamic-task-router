@@ -122,6 +122,14 @@ enables a model, changes its privacy classification, or assigns routing scores.
 The CLI catalogue remains the authority for account access; public catalogue
 entries are only candidates for a reviewed DTR profile.
 
+Its `drift` section separates newly visible but unprofiled CLI models,
+configured models missing from a successfully read CLI catalogue, and duplicate
+profiles for the same provider/model. An unavailable CLI does not mark its
+configured models missing. `profileSuggestions` contains disabled, incomplete
+starters for newly visible CLI models; fill in every `reviewRequired` field
+before adding one to configuration. Missing or duplicate entries are review
+signals, not automatic reasons to disable a model.
+
 `dtr opencode-models` reports catalog identifiers in the exact
 `provider/model` form that OpenCode accepts. Discovery alone cannot determine
 quality, role suitability, privacy, or cost, so it intentionally does not
