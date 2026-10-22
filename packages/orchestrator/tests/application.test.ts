@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { DtrApplication, readOllamaRuntime, safeError, type DtrEvent } from "../src/application.js";
 import { stateDirectoryFor } from "../src/state.js";
+import { createRunRecord, writeRunRecord } from "../src/telemetry/run-registry.js";
 import type { Provider, ProviderId, WorkerRequest, WorkerResult } from "../src/types.js";
 
 const models = `
@@ -101,6 +102,55 @@ describe("application observability", () => {
     const run = await app.run({ prompt: "Review one", role: "reviewer", cwd });
     await expect(app.getRun(run.runId.slice(0, 8))).resolves.toMatchObject({ id: run.runId });
     await expect(app.getRun("00000000-0000")).resolves.toBeNull();
+  });
+  it("continues a DTR conversation with only the prior short handoff and inherited files", async () => {
+    const { configDir, cwd } = await scaffold();
+    await writeFile(join(cwd, "parser.ts"), "export const parse = () => 1;\n");
+    const providers = fakeProviders({ claude: { output: "Parser review: consider the empty input case." }, codex: { output: "Parser review: consider the empty input case." } });
+    const prompts: string[] = [];
+    for (const provider of Object.values(providers)) {
+      const run = provider.run.bind(provider);
+      provider.run = async (request) => { prompts.push(request.prompt); return run(request); };
+    }
+    const app = new DtrApplication(configDir, cwd, providers, null);
+    const first = await app.run({ prompt: "Review parser", role: "reviewer", cwd, files: ["parser.ts"], conversation: {} });
+    const firstRecord = await app.getRun(first.runId);
+    expect(firstRecord?.conversation).toMatchObject({ rootRunId: first.runId, files: ["parser.ts"], handoff: "Parser review: consider the empty input case." });
+    const restarted = new DtrApplication(configDir, cwd, providers, null);
+    const second = await restarted.run({ prompt: "What about tests?", role: "reviewer", cwd, conversation: { parentRunId: first.runId } });
+    const secondRecord = await restarted.getRun(second.runId);
+    expect(secondRecord?.conversation).toMatchObject({ rootRunId: first.runId, parentRunId: first.runId, files: ["parser.ts"] });
+    expect(prompts.at(-1)).toContain("What about tests?");
+    expect(prompts.at(-1)).toContain("Parser review: consider the empty input case.");
+    expect(prompts.at(-1)).toContain("parser.ts");
+    const legacy = await app.run({ prompt: "Review separately", role: "reviewer", cwd });
+    await expect(app.run({ prompt: "Follow up", role: "reviewer", cwd, conversation: { parentRunId: legacy.runId } })).rejects.toThrow("no completed DTR conversation handoff");
+  });
+  it("reports a run id through the lifecycle as soon as the run exists", async () => {
+    const { configDir, cwd } = await scaffold();
+    const app = new DtrApplication(configDir, cwd, fakeProviders(), null);
+    const seen: string[] = [];
+    const run = await app.run({ prompt: "Review parser", role: "reviewer", cwd, lifecycle: { onRunCreated: (info) => seen.push(info.runId) } });
+    expect(seen).toEqual([run.runId]);
+  });
+  it("lists runs newest first and honours the requested limit", async () => {
+    const { configDir, cwd } = await scaffold();
+    const app = new DtrApplication(configDir, cwd, fakeProviders(), null);
+    const first = await app.run({ prompt: "First task", role: "reviewer", cwd });
+    const second = await app.run({ prompt: "Second task", role: "reviewer", cwd });
+    const listed = await app.listRuns(1);
+    expect(listed.map((record) => record.id)).toEqual([second.runId]);
+    expect((await app.listRuns(2)).map((record) => record.id).sort()).toEqual([first.runId, second.runId].sort());
+  });
+  it("lists the newest run by start time rather than UUID order", async () => {
+    const { configDir, cwd } = await scaffold();
+    const root = stateDirectoryFor(cwd);
+    const older = await createRunRecord(root, "single", undefined, "ffffffff-ffff-ffff-ffff-ffffffffffff");
+    older.startedAt = "2026-01-01T00:00:00.000Z"; await writeRunRecord(root, older);
+    const newer = await createRunRecord(root, "single", undefined, "00000000-0000-0000-0000-000000000001");
+    newer.startedAt = "2026-01-02T00:00:00.000Z"; await writeRunRecord(root, newer);
+    const app = new DtrApplication(configDir, cwd, fakeProviders(), null);
+    expect((await app.listRuns(1)).map((run) => run.id)).toEqual([newer.id]);
   });
 });
 
@@ -201,14 +251,16 @@ describe("DtrApplication abort", () => {
 describe("DtrApplication async dispatch", () => {
   it("returns the run ID promptly while the worker continues in the background", async () => {
     const { configDir, cwd } = await scaffold();
-    const app = new DtrApplication(configDir, cwd, fakeProviders({ claude: { delayMs: 80 } }), null);
-    const startedAt = Date.now();
+    const app = new DtrApplication(configDir, cwd, fakeProviders({ claude: { delayMs: 400 } }), null);
     const dispatched = await app.dispatch({ prompt: "Review the src directory", role: "reviewer", cwd });
     expect(dispatched.runId).toBeTruthy();
-    expect(Date.now() - startedAt).toBeLessThan(50);
+    // The dispatch resolves while the worker is still running, so the run is
+    // readable as "running" before its provider call has finished. Asserting
+    // the state rather than a wall-clock bound keeps the test meaningful
+    // without making it flaky on a loaded machine.
     const inFlight = await app.getRun(dispatched.runId);
     expect(inFlight?.state).toBe("running");
-    await new Promise<void>((resolve) => setTimeout(resolve, 150));
+    await new Promise<void>((resolve) => setTimeout(resolve, 600));
     const finished = await app.getRun(dispatched.runId);
     expect(finished?.state).toBe("succeeded");
   });

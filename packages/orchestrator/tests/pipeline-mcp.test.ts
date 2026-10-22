@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { mcpProfileSchema } from "../src/mcp.js";
+import { createMcpServer, mcpDispatchSchema, mcpProfileSchema } from "../src/mcp.js";
 import { parseConfig } from "../src/config.js";
 import { runPipeline } from "../src/strategies/pipeline.js";
 import { readRunRecord } from "../src/telemetry/run-registry.js";
@@ -157,3 +157,21 @@ async function gitRepo(): Promise<string> {
   await exec("git", ["-C", root, "commit", "-m", "initial"]);
   return root;
 }
+
+describe("mcp tool surface", () => {
+  it("registers the run-list and continuation inputs on the server", () => {
+    const server = createMcpServer();
+    const registered = (server as unknown as { _registeredTools?: Record<string, unknown> })._registeredTools;
+    const names = registered ? Object.keys(registered) : [];
+    expect(names).toContain("dtr_runs");
+    expect(names).toContain("dtr_status");
+    expect(names).toContain("dtr_run");
+  });
+  it("accepts a continuation run id in the dispatch input schema", () => {
+    const parsed = mcpDispatchSchema.parse({ role: "reviewer", prompt: "check", continueRunId: "11111111-1111-4111-8111-111111111111" });
+    expect(parsed.continueRunId).toBe("11111111-1111-4111-8111-111111111111");
+  });
+  it("rejects a malformed continuation run id", () => {
+    expect(() => mcpDispatchSchema.parse({ role: "reviewer", prompt: "check", continueRunId: "not-a-uuid" })).toThrow();
+  });
+});

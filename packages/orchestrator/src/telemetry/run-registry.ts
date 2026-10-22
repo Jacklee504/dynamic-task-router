@@ -31,6 +31,7 @@ export interface RunRecord {
   baseHead?: string;
   scope?: string[];
   stages: RunStageRecord[];
+  conversation?: { rootRunId: string; parentRunId?: string; files: string[]; handoff?: string };
   error?: string;
   outcome?: { status: "accepted" | "rejected" | "partial" | "escalated"; reviewFindingsCount?: number; regressionDetected?: boolean; manualScore?: number };
 }

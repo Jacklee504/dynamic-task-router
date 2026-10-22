@@ -20,7 +20,15 @@ export const mcpProfileSchema = z.object(profileInput).strict();
 const dispatchInput = {
   ...profileInput,
   files: z.array(z.string().min(1).max(256)).max(MAX_RELEVANT_FILES).optional(),
+  /**
+   * The run id of a completed single-route run to continue. DTR sends the
+   * previous short handoff and inherits the previous relevant file list; it
+   * does not resume the provider's own session.
+   */
+  continueRunId: z.string().uuid().optional(),
 };
+/** The validated input schema shared by the run, dispatch, and prepare tools. */
+export const mcpDispatchSchema = z.object(dispatchInput).strict();
 const outcomeInput = {
   runId: z.string().uuid(),
   cwd: z.string().min(1).max(2048).optional(),
@@ -55,6 +63,21 @@ export function createMcpServer(): McpServer {
     if (!application) { application = new DtrApplication(configDir, resolved); applications.set(resolved, application); }
     return application;
   }
+  server.registerTool("dtr_runs", { description: "List recent persisted runs for the target repository, newest first. Use it to find a run id for dtr_status, dtr_outcome, or to locate a resumable DTR conversation.", inputSchema: { cwd: z.string().min(1).max(2048).optional(), limit: z.number().int().min(1).max(100).optional() } }, async (input) => {
+    try {
+      const records = await appFor(cwd(input.cwd)).listRuns(input.limit ?? 20);
+      return text(records.map((record) => ({
+        runId: record.id,
+        strategy: record.strategy,
+        state: record.state,
+        startedAt: record.startedAt,
+        endedAt: record.endedAt,
+        ...(record.conversation ? { conversation: { rootRunId: record.conversation.rootRunId, ...(record.conversation.parentRunId ? { parentRunId: record.conversation.parentRunId } : {}), resumable: Boolean(record.conversation.handoff) } } : {}),
+        ...(record.writeMode ? { writeMode: record.writeMode, branch: record.branch } : {}),
+        ...(record.error ? { error: record.error } : {}),
+      })));
+    } catch (reason) { return error(reason); }
+  });
   server.registerTool("dtr_health", { description: "Report configured provider and local-model availability.", inputSchema: {} }, async () => {
     try {
       const application = appFor(cwd(undefined)); return text({ providers: await application.listProviders(), models: await application.listModels() });
@@ -79,11 +102,11 @@ export function createMcpServer(): McpServer {
   server.registerTool("dtr_prepare", { description: "Validate one compact task and its relative file paths, then preview the packet, token estimate, and selected route. Does not invoke a model. Optional: normal dispatch validation already happens inside dtr_run, dtr_dispatch, and dtr_pipeline. Use dtr_prepare for route preview, diagnostics, or uncertain scope.", inputSchema: dispatchInput }, async (input) => {
     try { normalizeCompactTask(input.prompt); return text(await appFor(cwd(input.cwd)).prepare({ ...applicationInput(input), cwd: cwd(input.cwd), files: input.files })); } catch (reason) { return error(reason); }
   });
-  server.registerTool("dtr_run", { description: "Select and run one bounded, read-only router task. Pass only the compact objective and up to eight relative file paths; never paste source, logs, transcripts, or reasoning.", inputSchema: dispatchInput }, async (input) => {
-    try { normalizeCompactTask(input.prompt); const run = await appFor(cwd(input.cwd)).run({ ...applicationInput(input), cwd: cwd(input.cwd), files: input.files }); return text({ runId: run.runId, routing: run.routing, success: run.result.success, result: run.result.output.slice(0, 1200) }); } catch (reason) { return error(reason); }
+  server.registerTool("dtr_run", { description: "Select and run one bounded, read-only router task. Pass only the compact objective and up to eight relative file paths; never paste source, logs, transcripts, or reasoning. Set continueRunId to continue a completed DTR conversation.", inputSchema: dispatchInput }, async (input) => {
+    try { normalizeCompactTask(input.prompt); const run = await appFor(cwd(input.cwd)).run({ ...applicationInput(input), cwd: cwd(input.cwd), files: input.files, ...(input.continueRunId ? { conversation: { parentRunId: input.continueRunId } } : {}) }); return text({ runId: run.runId, routing: run.routing, success: run.result.success, result: run.result.output.slice(0, 1200) }); } catch (reason) { return error(reason); }
   });
-  server.registerTool("dtr_dispatch", { description: "Start one bounded read-only router task and return only its run ID. Use dtr_status for completion and dtr_abort to stop the worker. Same compact-task and file constraints as dtr_run.", inputSchema: dispatchInput }, async (input) => {
-    try { normalizeCompactTask(input.prompt); const result = await appFor(cwd(input.cwd)).dispatch({ ...applicationInput(input), cwd: cwd(input.cwd), files: input.files }); return text({ runId: result.runId, state: "running", guide: "Read dtr_status for the run ID to poll completion; call dtr_abort to stop the worker." }); } catch (reason) { return error(reason); }
+  server.registerTool("dtr_dispatch", { description: "Start one bounded read-only router task and return only its run ID. Use dtr_status for completion and dtr_abort to stop the worker. Same compact-task and file constraints as dtr_run. Set continueRunId to continue a completed DTR conversation.", inputSchema: dispatchInput }, async (input) => {
+    try { normalizeCompactTask(input.prompt); const result = await appFor(cwd(input.cwd)).dispatch({ ...applicationInput(input), cwd: cwd(input.cwd), files: input.files, ...(input.continueRunId ? { conversation: { parentRunId: input.continueRunId } } : {}) }); return text({ runId: result.runId, state: "running", guide: "Read dtr_status for the run ID to poll completion; call dtr_abort to stop the worker." }); } catch (reason) { return error(reason); }
   });
   server.registerTool("dtr_fanout", { description: "Run the same bounded read-only task through independent model families.", inputSchema: { ...dispatchInput, families: z.number().int().min(2).max(4) } }, async (input) => {
     try { const run = await appFor(cwd(input.cwd)).fanout({ ...applicationInput({ ...input, diversity: "medium" }), cwd: cwd(input.cwd), files: input.files, families: input.families }); return text(run.map((item) => ({ runId: item.runId, model: item.model, success: item.result.success, result: item.result.output.slice(0, 1200) }))); } catch (reason) { return error(reason); }
@@ -91,8 +114,15 @@ export function createMcpServer(): McpServer {
   server.registerTool("dtr_pipeline", { description: "Run a named safe pipeline. write: true defaults to in-place on the current checkout. Use writeMode: \"isolated\" for a temporary detached worktree or branch: \"<name>\" for an explicit persistent branch worktree. scope is an optional write allowlist.", inputSchema: { ...dispatchInput, template: z.enum(["debug-review", "plan-challenge-review", "implement-review"]), write: z.boolean().optional(), writeMode: z.enum(["in-place", "isolated", "branch"]).optional(), branch: z.string().min(1).max(128).optional(), scope: z.array(z.string().min(1).max(256)).max(32).optional(), allowNoop: z.boolean().optional(), implementationProvider: z.enum(["claude", "codex", "ollama", "openrouter", "featherless", "antigravity", "opencode"]).optional(), reviewProvider: z.enum(["claude", "codex", "ollama", "openrouter", "featherless", "antigravity", "opencode"]).optional() } }, async (input) => {
     try { if (input.allowedProviders?.length) throw new Error("dtr_pipeline does not accept allowedProviders. Use implementationProvider or reviewProvider instead."); const run = await appFor(cwd(input.cwd)).pipeline({ ...applicationInput(input), cwd: cwd(input.cwd), files: input.files, template: input.template, ...(input.write !== undefined ? { write: input.write } : {}), ...(input.writeMode ? { writeMode: input.writeMode } : {}), ...(input.branch ? { branch: input.branch } : {}), ...(input.scope ? { scope: input.scope } : {}), ...(input.allowNoop !== undefined ? { allowNoop: input.allowNoop } : {}), ...(input.implementationProvider ? { implementationProvider: input.implementationProvider } : {}), ...(input.reviewProvider ? { reviewProvider: input.reviewProvider } : {}) }); return text({ runId: run.record.id, state: run.record.state, stages: run.record.stages }); } catch (reason) { return error(reason); }
   });
-  server.registerTool("dtr_status", { description: "Read persisted status for a router run ID.", inputSchema: { runId: z.string().uuid(), cwd: z.string().min(1).max(2048).optional() } }, async (input) => {
-    try { const run = await appFor(cwd(input.cwd)).getRun(input.runId); if (!run) throw new Error("Run not found"); return text(run); } catch (reason) { return error(reason); }
+  server.registerTool("dtr_status", { description: "Read persisted status for a router run ID. For a completed single route the response includes its DTR handoff and the continueRunId to use for a follow-up.", inputSchema: { runId: z.string().uuid(), cwd: z.string().min(1).max(2048).optional() } }, async (input) => {
+    try {
+      const run = await appFor(cwd(input.cwd)).getRun(input.runId);
+      if (!run) throw new Error(`Run not found: ${input.runId}. Use dtr_runs to list the run ids for this repository.`);
+      return text({
+        ...run,
+        ...(run.conversation?.handoff ? { handoff: run.conversation.handoff, continueRunId: run.id } : {}),
+      });
+    } catch (reason) { return error(reason); }
   });
   server.registerTool("dtr_abort", { description: "Abort an in-flight DTR run started by dtr_run or dtr_dispatch. Idempotent: aborting an unknown or finished run returns accepted: false without an error.", inputSchema: { runId: z.string().uuid(), cwd: z.string().min(1).max(2048).optional() } }, async (input) => {
     try { return text(await appFor(cwd(input.cwd)).abort(input.runId)); } catch (reason) { return error(reason); }

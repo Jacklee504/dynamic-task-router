@@ -129,6 +129,8 @@ export interface Provider {
 }
 
 export interface WorkerLifecycle {
+  /** Fired as soon as a run id exists, so a caller can report or poll it. */
+  onRunCreated?: (info: { runId: string; task: string }) => void;
   onRouteSelected?: (info: { modelId: string; provider: ProviderId; model: string; effort: Effort }) => void;
   onWorkerStarted?: (info: { workerId: string; provider: ProviderId; model: string; role: WorkerRole; effort: Effort }) => void;
   /** Lifecycle only. Never surface model reasoning or partial private output. */
