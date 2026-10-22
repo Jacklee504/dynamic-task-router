@@ -5,6 +5,7 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 
 import { DtrApplication } from "./application.js";
 import { findModel, repositoryRootFromConfig, userConfigPath } from "./config.js";
+import { commandGroups, commandSpecs, knownFlagsFor, renderCommandHelp } from "./cli-help.js";
 import { DISPATCH_CONTRACT, compactTaskPrompt } from "./contracts.js";
 import { OllamaProvider } from "./providers/ollama.js";
 import { OpenCodeProvider } from "./providers/opencode.js";
@@ -34,17 +35,21 @@ export async function main(argv: string[]): Promise<number> {
   let subcommand = "";
   let flagArgs = rest;
   if (command === "models" && rest[0] && !rest[0].startsWith("--")) { subcommand = rest[0]; flagArgs = rest.slice(1); }
-  const flags = parseFlags(flagArgs);
+  const wantsHelp = flagArgs.includes("--help") || flagArgs.includes("-h");
+  const flags = parseFlags(flagArgs.filter((arg) => arg !== "--help" && arg !== "-h"));
   const configDir = typeof flags["config-dir"] === "string" ? resolve(flags["config-dir"]) : resolve(dirname(fileURLToPath(import.meta.url)), "../../../config");
   try {
+    if (command === "help" || command === "--help") { printUsage(process.stdout); return 0; }
+    if (command === "version" || command === "--version") { printVersion(); return 0; }
+    if (wantsHelp && command && commandSpecs[command]) { console.log(renderCommandHelp(command, usageText())); return 0; }
+    if (command && commandSpecs[command]) rejectUnknownFlags(command, flags);
     if (!command || command === "tui") {
-      if (!process.stdin.isTTY || !process.stdout.isTTY) { printUsage(); return 1; }
+      if (wantsHelp) { console.log(renderCommandHelp("tui", usageText())); return 0; }
+      if (!process.stdin.isTTY || !process.stdout.isTTY) { printUsage(process.stderr); return 1; }
       const { runTui } = await import("@dynamic-task-router/tui");
       await runTui({ configDir, cwd: cwdFrom(flags) });
       return 0;
     }
-    if (command === "help" || command === "--help") { printUsage(process.stdout); return 0; }
-    if (command === "version" || command === "--version") { printVersion(); return 0; }
     if (command === "start") { console.log(DISPATCH_CONTRACT); return 0; }
     if (command === "config") return reportConfig(configDir);
     const app = new DtrApplication(configDir, cwdFrom(flags));
@@ -52,7 +57,7 @@ export async function main(argv: string[]): Promise<number> {
     if (command === "doctor") return await doctor(app, flags);
     if (command === "models") {
       if (subcommand && subcommand !== "refresh") throw new Error(`Unexpected argument: ${subcommand}`);
-      return await (subcommand === "refresh" || flags.refresh ? refreshModels(app) : reportModels(app));
+      return await (subcommand === "refresh" || flags.refresh ? refreshModels(app) : reportModels(app, flags));
     }
     if (command === "discover-models") return await discoverModels(app, flags);
     if (command === "opencode-models") return await reportOpenCodeModels(app["providers"], cwdFrom(flags));
@@ -61,16 +66,24 @@ export async function main(argv: string[]): Promise<number> {
     if (command === "route") return await route(app, flags);
     if (command === "fanout") return await fanout(app, flags);
     if (command === "pipeline") return await pipeline(app, flags);
+    if (command === "runs") return await runs(app, flags);
     if (command === "status") return await status(app, flags);
     if (command === "evaluate") return await evaluate(configDir);
     if (command === "stats") return await stats(app);
     if (command === "usage") return await usage(app);
     if (command === "outcome") return await outcome(app, flags);
     console.error(`dtr: unknown command: ${command}`);
-    printUsage(); return 1;
+    printUsage(process.stderr); return 1;
   } catch (error) {
     console.error(`dtr: ${error instanceof Error ? error.message : String(error)}`); return 1;
   }
+}
+
+/** Rejects a misspelled flag instead of silently ignoring it and running anyway. */
+function rejectUnknownFlags(command: string, flags: Flags): void {
+  const known = knownFlagsFor(command);
+  const unknown = Object.keys(flags).filter((name) => !known.has(name));
+  if (unknown.length) throw new Error(`Unknown option --${unknown[0]} for 'dtr ${command}'. Run 'dtr ${command} --help' to see the accepted options.`);
 }
 
 async function reportHealth(app: DtrApplication): Promise<number> {
@@ -101,8 +114,9 @@ async function doctor(app: DtrApplication, flags: Flags): Promise<number> {
   return report.ready ? 0 : 1;
 }
 
-async function reportModels(app: DtrApplication): Promise<number> {
+async function reportModels(app: DtrApplication, flags: Flags): Promise<number> {
   const models = await app.listModels();
+  if (boolFlag(flags, "json")) { console.log(JSON.stringify(models, null, 2)); return 0; }
   for (const model of models) console.log(`${model.id}\t${model.provider}\t${model.family}\t${model.model}\t${model.tier}\t${model.enabled ? "enabled" : "disabled"}\t${model.available ? "available" : "unavailable"}`);
   return 0;
 }
@@ -204,11 +218,11 @@ async function route(app: DtrApplication, flags: Flags): Promise<number> {
 }
 
 async function fanout(app: DtrApplication, flags: Flags): Promise<number> {
-  const task = requiredFlag(flags, "prompt");
+  const task = taskFlag(flags, "fanout");
   const cwd = cwdFrom(flags);
   const families = typeof flags.families === "string" ? Number.parseInt(flags.families, 10) : undefined;
   if (families !== undefined && (!Number.isInteger(families) || families < 2)) throw new Error("--families must be an integer of at least 2");
-  const files = typeof flags["include-files"] === "string" ? flags["include-files"].split(",").map((s) => s.trim()).filter(Boolean) : undefined;
+  const files = filesFlag(flags);
   const runs = await app.fanout({ prompt: task, role: enumFlag(flags, "role", roles), cwd, files, families, profile: profileFrom(flags, task, families), lifecycle: cliProgress() });
   for (const run of runs) {
     console.log(JSON.stringify({ model: run.model, routing: run.routing, runLog: run.runLog, success: run.result.success }, null, 2));
@@ -219,7 +233,7 @@ async function fanout(app: DtrApplication, flags: Flags): Promise<number> {
 
 async function pipeline(app: DtrApplication, flags: Flags): Promise<number> {
   if (flags.provider !== undefined) throw new Error("`dtr pipeline` does not accept --provider because independent stages need different providers. Use --implementation-provider and/or --review-provider.");
-  const task = requiredFlag(flags, "prompt");
+  const task = taskFlag(flags, "pipeline");
   const cwd = cwdFrom(flags);
   const template = requiredFlag(flags, "template");
   const write = boolFlag(flags, "write");
@@ -234,16 +248,52 @@ async function pipeline(app: DtrApplication, flags: Flags): Promise<number> {
   const writeMode: WriteMode | undefined = isolated ? "isolated" : branchName ? "branch" : write ? "in-place" : undefined;
 const implementationProvider = optionalProviderFlag(flags, "implementation-provider");
 const reviewProvider = optionalProviderFlag(flags, "review-provider");
-const files = typeof flags["include-files"] === "string" ? flags["include-files"].split(",").map((s) => s.trim()).filter(Boolean) : undefined;
+const files = filesFlag(flags);
 const run = await app.pipeline({ prompt: task, role: enumFlag(flags, "role", roles), cwd, template, write, scope, allowNoop, profile: profileFrom(flags, task), lifecycle: cliProgress(), ...(files ? { files } : {}), ...(writeMode ? { writeMode } : {}), ...(branchName ? { branch: branchName } : {}), ...(implementationProvider ? { implementationProvider } : {}), ...(reviewProvider ? { reviewProvider } : {}) });
   console.log(JSON.stringify({ runId: run.record.id, state: run.record.state, stages: run.record.stages }, null, 2));
   return run.record.state === "succeeded" ? 0 : 1;
 }
 
+async function runs(app: DtrApplication, flags: Flags): Promise<number> {
+  const limit = typeof flags.limit === "string" ? Number.parseInt(flags.limit, 10) : 20;
+  if (!Number.isInteger(limit) || limit < 1) throw new Error("--limit must be a positive integer");
+  const records = await app.listRuns(limit);
+  if (boolFlag(flags, "json")) { console.log(JSON.stringify(records, null, 2)); return 0; }
+  if (!records.length) { console.log("No persisted runs for this repository yet."); return 0; }
+  console.log("RUN       STRATEGY  STATE      STARTED               DETAIL");
+  for (const record of records) {
+    const detail = record.error ? record.error : record.conversation?.handoff ? "conversation" : record.writeMode ? `write=${record.writeMode}` : "";
+    console.log(`${record.id.slice(0, 8)}   ${record.strategy.padEnd(8)}  ${record.state.padEnd(9)}  ${new Date(record.startedAt).toISOString()}  ${detail.replace(/\s+/g, " ").slice(0, 60)}`);
+  }
+  console.log("");
+  console.log(`Inspect one run with: dtr status --run-id <id>`);
+  return 0;
+}
+
 async function status(app: DtrApplication, flags: Flags): Promise<number> {
-  const record = await app.getRun(requiredFlag(flags, "run-id"));
-  if (!record) throw new Error("Run not found");
-  console.log(JSON.stringify(record, null, 2));
+  const runId = requiredFlag(flags, "run-id");
+  const record = await app.getRun(runId);
+  if (!record) throw new Error(`Run not found: ${runId}. Use 'dtr runs' to list the run ids for this repository.`);
+  if (boolFlag(flags, "json")) { console.log(JSON.stringify(record, null, 2)); return 0; }
+  console.log(`run:       ${record.id}`);
+  console.log(`strategy:  ${record.strategy}${record.template ? ` (${record.template})` : ""}`);
+  console.log(`state:     ${record.state}`);
+  console.log(`started:   ${new Date(record.startedAt).toISOString()}`);
+  if (record.endedAt) console.log(`ended:     ${new Date(record.endedAt).toISOString()}`);
+  if (record.writeMode) console.log(`write:     mode=${record.writeMode}${record.branch ? ` branch=${record.branch}` : ""}`);
+  if (record.cwd) console.log(`cwd:       ${record.cwd}`);
+  if (record.scope?.length) console.log(`scope:     ${record.scope.join(", ")}`);
+  for (const stage of record.stages) console.log(`stage:     ${stage.id} · ${stage.state} · ${stage.model ?? "unassigned"}${stage.changedPaths?.length ? ` · changed=[${stage.changedPaths.join(", ")}]` : ""}`);
+  if (record.conversation) console.log(`chat:      root=${record.conversation.rootRunId.slice(0, 8)}${record.conversation.parentRunId ? ` parent=${record.conversation.parentRunId.slice(0, 8)}` : ""}${record.conversation.handoff ? " · resumable" : ""}`);
+  if (record.outcome) console.log(`outcome:   ${record.outcome.status}`);
+  if (record.error) console.log(`error:     ${record.error}`);
+  if (record.conversation?.handoff) {
+    console.log("");
+    console.log("handoff:");
+    console.log(record.conversation.handoff);
+  }
+  console.log("");
+  console.log(`Full record: dtr status --run-id ${record.id} --json`);
   return 0;
 }
 
@@ -293,6 +343,18 @@ function routeRole(flags: Flags, task: string): WorkerRole {
   if (/\b(architecture|design|plan)\b/i.test(task)) return "architect";
   return "researcher";
 }
+/** Accepts --task, with --prompt kept as a documented alias for scripts written against the older CLI. */
+function taskFlag(flags: Flags, command: string): string {
+  const task = typeof flags.task === "string" ? flags.task : typeof flags.prompt === "string" ? flags.prompt : undefined;
+  if (!task) throw new Error(`--task is required for 'dtr ${command}'. Use 'dtr ${command} --help' for the full syntax.`);
+  return task;
+}
+/** Accepts --files, with --include-files kept as an alias for the older raw-prompt CLI. */
+function filesFlag(flags: Flags): string[] | undefined {
+  const raw = typeof flags.files === "string" ? flags.files : typeof flags["include-files"] === "string" ? flags["include-files"] : undefined;
+  if (raw === undefined) return undefined;
+  return raw.split(",").map((item) => item.trim()).filter(Boolean);
+}
 async function promptWithContext(flags: Flags, task: string, cwd: string): Promise<string> { return appendExplicitFileContext(task, typeof flags["include-files"] === "string" ? flags["include-files"] : undefined, cwd); }
 function cwdFrom(flags: Flags): string { return typeof flags.cwd === "string" ? resolve(flags.cwd) : process.cwd(); }
 function boolFlag(flags: Flags, name: string): boolean { return flags[name] === true || flags[name] === "true"; }
@@ -303,6 +365,7 @@ function requiredFlag(flags: Flags, name: string): string { const value = flags[
 function printResult(output: string, error: string | undefined, logPath: string, showLog = false): void { if (output) process.stdout.write(output.endsWith("\n") ? output : `${output}\n`); if (error) console.error(`dtr: ${error}`); if (showLog) console.error(`dtr: run log ${logPath}`); }
 function cliProgress(): WorkerLifecycle {
   return {
+    onRunCreated: ({ runId }) => console.error(`dtr: run=${runId}`),
     onRouteSelected: ({ modelId, provider, model, effort }) => console.error(`dtr: selected ${modelId} (${provider}/${model}, ${effort})`),
     onWorkerStarted: ({ workerId, role }) => console.error(`dtr: worker ${workerId} started for ${role}`),
     onWorkerHeartbeat: ({ workerId, elapsedMs }) => console.error(`dtr: worker ${workerId} still running (${formatElapsed(elapsedMs)})`),
@@ -311,26 +374,20 @@ function cliProgress(): WorkerLifecycle {
   };
 }
 function formatElapsed(elapsedMs: number): string { const seconds = Math.floor(elapsedMs / 1_000); return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`; }
+
+/** The grouped command summary shared by `dtr --help` and per-command help fallbacks. */
+function usageText(): string {
+  const lines = ["Dynamic Task Router - route bounded work to the right model.", ""];
+  for (const group of commandGroups) {
+    lines.push(`${group.title}:`);
+    for (const entry of group.entries) lines.push(`  ${entry.command.padEnd(46)} ${entry.note}`);
+    lines.push("");
+  }
+  lines.push("Run 'dtr <command> --help' for the options of one command.");
+  return lines.join("\n");
+}
 function printUsage(stream: NodeJS.WriteStream = process.stderr): void {
-  const lines = [
-    "Usage: dtr <start|tui|health|doctor|config|models|discover-models|opencode-models|run|select|route|fanout|pipeline|status|evaluate|stats|usage|outcome|help|version> [options]",
-    "Start: dtr start  (print the compact dispatch contract; no model call)",
-    "Route: dtr route --task <100-word task> [--files path1,path2] [--role <role>] [--provider <provider>] [profile flags]",
-    "Run: dtr run --allow-raw-prompt --provider <provider> --model <model> --role <role> --prompt <text> (expert override)",
-    "Context: raw run, fanout, and pipeline accept --include-files path1,path2 (explicit files below --cwd only)",
-    "Doctor: dtr doctor [--verbose] [--cwd <target-repository>]",
-    "Config: dtr config (show the non-secret personal overlay path)",
-    "TUI: dtr tui [--cwd <target-repository>]",
-    "Models: dtr models [--refresh] (or `dtr models refresh`); dtr opencode-models (OpenCode's unprofiled configured catalog)",
-    "Discovery: dtr discover-models [--refresh] (catalogue comparison only; never edits routing config)",
-    "Select: dtr select --role <role> [--prompt <text>] [--complexity <level>] [--risk <level>] [--diversity <level>] [--provider <provider>]",
-    "Fanout: dtr fanout --families <n> --role <role> --prompt <text> [profile flags]",
-    "Pipeline: dtr pipeline --template <name> --role <role> --prompt <text> [--write] [--isolated] [--branch <name>] [--scope path1,path2] [--allow-noop] [--implementation-provider <provider>] [--review-provider <provider>]",
-    "Usage: dtr usage [--cwd <repo>] (DTR execution telemetry; not account quota)",
-    "Status: dtr status --run-id <uuid> [--cwd <repo>]",
-    "Help: dtr --help; Version: dtr --version",
-  ];
-  for (const line of lines) stream.write(`${line}\n`);
+  stream.write(`${usageText()}\n`);
 }
 function printVersion(): void {
   try { const pkg = JSON.parse(readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), "../package.json"), "utf8")) as { version?: string }; console.log(`dtr ${pkg.version ?? "unknown"}`); } catch { console.log("dtr unknown"); }
