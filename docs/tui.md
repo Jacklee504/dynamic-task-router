@@ -64,7 +64,9 @@ aborts the current TUI-owned run or exits when none is active. Prompt history
 is kept in memory only.
 
 The numbered run list and the result screen are the two ways to move from a
-summary to the underlying text without leaving the terminal.
+summary to the underlying text without leaving the terminal. `/pick N` opens
+the numbered run in `/runs` or `/history`. In `/chats`, it opens the latest
+resumable turn of the numbered conversation, when one exists.
 
 If no configured provider is healthy, the dashboard shows a "NO ROUTE
 AVAILABLE" panel that points at `dtr doctor --verbose` instead of leaving the

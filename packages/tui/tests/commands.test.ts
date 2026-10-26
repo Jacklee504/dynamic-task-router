@@ -110,7 +110,24 @@ describe("terminal command parsing", () => {
     const context = { application: { listRuns } as unknown as DtrApplication, cwd: "/project", overrides: {} };
     await expect(findCommand("pick")!.execute(["1"], context)).resolves.toMatchObject({ screen: "run-detail", selectedRunId: "22222222-2222-4222-8222-222222222222" });
     await expect(findCommand("pick")!.execute(["2"], context)).resolves.toMatchObject({ selectedRunId: "11111111-1111-4111-8111-111111111111" });
-    await expect(findCommand("pick")!.execute(["9"], context)).resolves.toMatchObject({ message: expect.stringContaining("No run at position 9") });
+    await expect(findCommand("pick")!.execute(["9"], context)).resolves.toMatchObject({ message: expect.stringContaining("No entry at position 9") });
     await expect(findCommand("pick")!.execute(["zero"], context)).resolves.toMatchObject({ message: expect.stringContaining("Usage") });
+    await expect(findCommand("pick")!.execute(["1junk"], context)).resolves.toMatchObject({ message: expect.stringContaining("Usage") });
+  });
+
+  it("picks the numbered conversation or history turn shown on screen", async () => {
+    const first = "11111111-1111-4111-8111-111111111111";
+    const second = "22222222-2222-4222-8222-222222222222";
+    const third = "33333333-3333-4333-8333-333333333333";
+    const listRuns = vi.fn(async () => [
+      { id: third, state: "failed", conversation: { rootRunId: first } },
+      { id: second, state: "succeeded", conversation: { rootRunId: first, handoff: "Done" } },
+      { id: "44444444-4444-4444-8444-444444444444", state: "succeeded" },
+      { id: first, state: "succeeded", conversation: { rootRunId: first, handoff: "First" } },
+    ]);
+    const context = { application: { listRuns } as unknown as DtrApplication, cwd: "/project", overrides: {} };
+    await expect(findCommand("pick")!.execute(["1"], { ...context, screen: "chats" })).resolves.toMatchObject({ selectedRunId: second });
+    await expect(findCommand("pick")!.execute(["2"], { ...context, screen: "chats" })).resolves.toMatchObject({ message: expect.stringContaining("No entry") });
+    await expect(findCommand("pick")!.execute(["2"], { ...context, screen: "history", historyRootId: first })).resolves.toMatchObject({ selectedRunId: second });
   });
 });

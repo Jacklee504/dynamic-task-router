@@ -74,11 +74,16 @@ export const commandRegistry: TuiCommand[] = [
   { name: "parent", description: "Return to the previous turn to branch from there.", usage: "/parent", execute: async (_args, context) => { if (!context.attachedRunId) return { message: "No conversation attached. Use /resume or /attach <id>." }; const run = await context.application.getRun(context.attachedRunId); const id = run?.conversation?.parentRunId; return id ? { screen: "run-detail", selectedRunId: id, attachRunId: id } : { message: "This is the first turn of the conversation." }; } },
   { name: "result", aliases: ["out"], description: "Show the full result text of the latest run.", usage: "/result [run-id]", execute: async (args, context) => { const id = args[0] ?? context.latestResult?.id; if (!id) return { message: "No result yet in this session. Use /runs to inspect a stored run." }; return { screen: "result", selectedRunId: id }; } },
   { name: "pick", description: "Open a run listed by /runs or /chats by its number.", usage: "/pick N", execute: async (args, context) => {
-    const index = Number.parseInt(args[0] ?? "", 10);
-    if (!Number.isInteger(index) || index < 1) return { message: "Usage: /pick N, where N is the number shown next to an entry in the run list." };
-    const records = await context.application.listRuns(100);
-    const target = records.slice(index - 1, index).at(0);
-    if (!target) return { message: `No run at position ${index}. Use /runs to see the list.` };
+    const value = args[0] ?? "";
+    if (!/^[1-9]\d*$/.test(value) || args.length !== 1) return { message: "Usage: /pick N, where N is the number shown in /runs, /chats, or /history." };
+    const index = Number(value);
+    if (!Number.isSafeInteger(index)) return { message: "Usage: /pick N, where N is the number shown in /runs, /chats, or /history." };
+    const records = await context.application.listRuns(context.screen === "runs" ? 30 : 100);
+    const chats = new Map<string, (typeof records)[number]>();
+    for (const run of records) { const root = run.conversation?.rootRunId; if (root && (!chats.has(root) || (!chats.get(root)?.conversation?.handoff && run.conversation?.handoff))) chats.set(root, run); }
+    const choices = context.screen === "chats" ? [...chats.values()] : context.screen === "history" ? records.filter((run) => run.conversation?.rootRunId === context.historyRootId) : records;
+    const target = choices[index - 1];
+    if (!target) return { message: `No entry at position ${index}. Use /runs, /chats, or /history to see the list.` };
     return { screen: "run-detail", selectedRunId: target.id };
   } },
   { name: "abort", description: "Request cancellation of an active run.", usage: "/abort [run-id]", execute: async (args, context) => { const runId = args[0] ?? context.activeRunId; if (!runId) return { message: "No active DTR run to abort." }; const result = await context.application.abort(runId); return { message: result.accepted ? `Abort requested for ${runId.slice(0, 8)}; awaiting process confirmation.` : "That run is not owned by this TUI session." }; } },
