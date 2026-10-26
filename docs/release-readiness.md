@@ -175,6 +175,37 @@ readable as `running` while its provider call is still in flight.
 
 Files: `packages/orchestrator/tests/application.test.ts`.
 
+## 15. MCP single routes now create resumable handoffs
+
+`dtr_run` and `dtr_dispatch` previously accepted `continueRunId`, but an
+initial call had no conversation record. A follow-up therefore had no handoff
+to continue. Both tools now create a conversation for their first run and
+record a short handoff after success. `dtr_status` exposes the continuation ID.
+The MCP guide also states that up to 800 characters of a successful result are
+stored for this purpose.
+
+Files: `packages/orchestrator/src/mcp.ts`,
+`packages/orchestrator/tests/pipeline-mcp.test.ts`, `docs/mcp.md`.
+
+## 16. `/pick N` follows the list currently on screen
+
+`/chats` numbers conversation groups, while `/pick N` previously selected the
+Nth run from all recent runs. It now selects the latest resumable turn of the
+numbered conversation. On `/history`, it selects the numbered turn; on `/runs`,
+it selects the numbered run. Invalid values such as `1junk` are rejected.
+
+Files: `packages/tui/src/commands/registry.ts`, `packages/tui/src/app.tsx`,
+`packages/tui/src/types.ts`, `packages/tui/tests/commands.test.ts`, `docs/tui.md`.
+
+## 17. Release instructions use the installed skill validator
+
+The Codex validation example pointed at the wrong skill and referenced a
+plugin validator script that is not installed here. It now names the DTR skill
+and the available skill validator. The validator script could not run in this
+environment because Python lacks PyYAML.
+
+File: `docs/RELEASING.md`.
+
 ## Verification
 
 ```text
@@ -185,3 +216,9 @@ dtr evaluate    (12/12 routing cases)
 
 The orchestrator suite was run four consecutive times to confirm the timing
 assertion no longer flakes.
+
+For the 2026-10-23 follow-up, the orchestrator and TUI builds passed, as did
+`npm test` (159 orchestrator tests, 14 TUI tests, and the Ollama shell check).
+The routing evaluation could not start: `tsx` received `EPERM` while opening
+its IPC pipe in the execution environment. The skill validator script exists,
+but this Python environment lacks PyYAML, so that validation remains open.

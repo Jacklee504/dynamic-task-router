@@ -2,11 +2,11 @@
 
 ## Local validation
 
-Run the Codex validators from the repository root:
+Validate the Codex skill from the repository root when Python has PyYAML
+installed and the standard Codex skill-creator is available:
 
 ```bash
-python3 /Users/jacklee/.codex/skills/.system/skill-creator/scripts/quick_validate.py packages/codex/skills/app-task-router
-python3 /Users/jacklee/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py packages/codex
+python3 "$HOME/.codex/skills/.system/skill-creator/scripts/quick_validate.py" packages/codex/skills/dynamic-task-router
 ```
 
 Validate Claude locally with `claude plugin validate ./packages/claude` when the
