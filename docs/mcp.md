@@ -11,9 +11,9 @@ npm run dtr:mcp
 ```
 
 The server exposes only typed router tools: `dtr_health`, `dtr_models`,
-`dtr_start`, `dtr_doctor`, `dtr_usage`, `dtr_select`, `dtr_prepare`,
+`dtr_discover_models`, `dtr_start`, `dtr_doctor`, `dtr_usage`, `dtr_select`, `dtr_prepare`,
 `dtr_run`, `dtr_dispatch`, `dtr_fanout`, `dtr_pipeline`, `dtr_status`,
-`dtr_abort`, and `dtr_outcome`. There is no shell passthrough, executable
+`dtr_runs`, `dtr_abort`, and `dtr_outcome`. There is no shell passthrough, executable
 override, environment-variable tool, or raw provider command.
 
 ## Codex lead
@@ -54,10 +54,19 @@ read-only worker in the background; `dtr_status` polls it and `dtr_abort`
 attempts to stop an in-flight run and is idempotent for unknown or finished
 runs.
 
+`dtr_run` and `dtr_dispatch` start a DTR conversation. After a successful run,
+`dtr_status` returns a short `handoff` and `continueRunId`. Pass that ID as
+`continueRunId` to either single-route tool for a follow-up. `dtr_runs` lists
+recent run IDs and marks conversations that can be resumed. Continuity uses a
+short DTR handoff and inherited file paths, not a provider-native session.
+
 `dtr_prepare`, `dtr_run`, `dtr_fanout`, and `dtr_pipeline` accept an optional
 `files` array of at most eight relative paths. It is a path list, never source
 content. The schema validates the 100-word task limit and path boundary; the
 application constructs the same compact task packet as the CLI and caps
-returned handoffs to 1,200 characters. `cwd` is the target repository for a
-run; it is not an executable command. Prompts/results are not persisted by
-default; structured metadata records (including write mode, branch, cwd, and base HEAD) are written to DTR's private state directory.
+returned results to 1,200 characters. `cwd` is the target repository for a
+run; it is not an executable command. For single-route MCP conversations, DTR
+persists up to 800 characters of a successful result as the follow-up handoff
+in its private state directory. It does not persist the full prompt or result.
+Other runs persist structured metadata (including write mode, branch, cwd, and
+base HEAD) without a conversation handoff.

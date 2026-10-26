@@ -1,8 +1,9 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createMcpServer, mcpDispatchSchema, mcpProfileSchema } from "../src/mcp.js";
+import { DtrApplication } from "../src/application.js";
 import { parseConfig } from "../src/config.js";
 import { runPipeline } from "../src/strategies/pipeline.js";
 import { readRunRecord } from "../src/telemetry/run-registry.js";
@@ -56,7 +57,7 @@ templates:
 `;
 const config = parseConfig(models, policy, pipelines);
 const directories: string[] = [];
-afterEach(async () => { await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
+afterEach(async () => { vi.restoreAllMocks(); await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 function provider(id: "claude" | "codex", calls: WorkerRequest[]): Provider { return { id, health: async () => true, run: async (request) => { calls.push(request); return { provider: id, model: request.model, requestedEffort: request.effort, output: `${id} evidence`, success: true, durationMs: 1 }; } }; }
 
 describe("MCP and pipelines", () => {
@@ -173,5 +174,17 @@ describe("mcp tool surface", () => {
   });
   it("rejects a malformed continuation run id", () => {
     expect(() => mcpDispatchSchema.parse({ role: "reviewer", prompt: "check", continueRunId: "not-a-uuid" })).toThrow();
+  });
+  it("starts a resumable conversation for both MCP single-route tools", async () => {
+    const run = vi.spyOn(DtrApplication.prototype, "run").mockResolvedValue({ runId: "new-run", routing: {} as never, runLog: "", result: { success: true, output: "Done" } as never });
+    const dispatch = vi.spyOn(DtrApplication.prototype, "dispatch").mockResolvedValue({ runId: "new-run" });
+    const tools = (createMcpServer() as unknown as { _registeredTools: Record<string, { handler: (input: unknown) => Promise<unknown> }> })._registeredTools;
+    const input = { role: "reviewer", prompt: "Review the change", cwd: "/project" };
+    await tools.dtr_run!.handler(input);
+    await tools.dtr_dispatch!.handler(input);
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({ conversation: {} }));
+    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ conversation: {} }));
+    await tools.dtr_run!.handler({ ...input, continueRunId: "11111111-1111-4111-8111-111111111111" });
+    expect(run).toHaveBeenLastCalledWith(expect.objectContaining({ conversation: { parentRunId: "11111111-1111-4111-8111-111111111111" } }));
   });
 });
