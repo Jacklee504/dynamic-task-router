@@ -1,7 +1,7 @@
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { parseConfig } from "../src/config.js";
 import { buildCompactTaskPacket, compactTaskPrompt, DISPATCH_CONTRACT, normalizeCompactTask, normalizeRelevantFiles, truncateTaskResult } from "../src/contracts.js";
 import { diagnoseProviders } from "../src/doctor.js";
@@ -13,7 +13,7 @@ import { attachRunOutcome, createRunRecord, writeRunRecord } from "../src/teleme
 import type { ProcessRunner, WorkerRequest } from "../src/types.js";
 
 const directories: string[] = [];
-afterEach(async () => { await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
+afterEach(async () => { vi.unstubAllEnvs(); await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 const request: WorkerRequest = { prompt: "Inspect a bounded task", cwd: "/tmp", role: "reviewer", model: "qwen/test", effort: "medium", readOnly: true };
 const models = `
 version: 1
@@ -57,9 +57,14 @@ const profile = { role: "reviewer" as const, complexity: "normal" as const, risk
 
 describe("optional OpenRouter", () => {
   it("is disabled without a key and never exposes one", async () => {
+    vi.stubEnv("OPENROUTER_API_KEY", "");
     const provider = new OpenRouterProvider(undefined);
     expect(await provider.health()).toBe(false); const result = await provider.run(request);
     expect(result.success).toBe(false); expect(result.error).toContain("disabled"); expect(JSON.stringify(result)).not.toContain("OPENROUTER_API_KEY");
+  });
+  it("is healthy when a key is present in the environment", async () => {
+    vi.stubEnv("OPENROUTER_API_KEY", "env-test-key");
+    expect(await new OpenRouterProvider(undefined).health()).toBe(true);
   });
   it("uses an explicit model through a mocked request", async () => {
     let body = ""; const provider = new OpenRouterProvider("test-key", async (_url, init) => { body = String(init?.body); return new Response(JSON.stringify({ model: "qwen/test", choices: [{ message: { content: "bounded result" } }], usage: { total_tokens: 17 } }), { status: 200 }); });
