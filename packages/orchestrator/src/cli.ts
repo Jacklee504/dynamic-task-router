@@ -46,7 +46,9 @@ export async function main(argv: string[]): Promise<number> {
     if (!command || command === "tui") {
       if (wantsHelp) { console.log(renderCommandHelp("tui", usageText())); return 0; }
       if (!process.stdin.isTTY || !process.stdout.isTTY) { printUsage(process.stderr); return 1; }
-      const { runTui } = await import("@dynamic-task-router/tui");
+      // The TUI depends on the orchestrator, so its types must not be resolved while compiling the orchestrator.
+      const tuiModule = "@dynamic-task-router/tui";
+      const { runTui } = await import(tuiModule) as { runTui: (options: { configDir: string; cwd?: string }) => Promise<void> };
       await runTui({ configDir, cwd: cwdFrom(flags) });
       return 0;
     }
