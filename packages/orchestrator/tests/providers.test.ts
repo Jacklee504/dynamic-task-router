@@ -188,13 +188,30 @@ describe("provider health and safety fallback", () => {
     const provider = new ClaudeProvider(new FakeRunner([{ stdout: "", stderr: "not found", exitCode: null, timedOut: false, error: "ENOENT" }]));
     await expect(provider.health()).resolves.toBe(false);
   });
-  it("reports Claude unavailable when required safety flags are absent", async () => {
+  it("reports Claude unavailable when the permission-mode safety flag is absent", async () => {
     const provider = new ClaudeProvider(new FakeRunner([
       { stdout: "Claude", stderr: "", exitCode: 0, timedOut: false },
       { stdout: "authenticated", stderr: "", exitCode: 0, timedOut: false },
-      { stdout: "--permission-mode", stderr: "", exitCode: 0, timedOut: false },
+      { stdout: "--max-turns <turns>", stderr: "", exitCode: 0, timedOut: false },
     ]));
     await expect(provider.health()).resolves.toBe(false);
+  });
+  it("reports Claude healthy when help lists --permission-mode but not --max-turns", async () => {
+    const provider = new ClaudeProvider(new FakeRunner([
+      { stdout: "Claude", stderr: "", exitCode: 0, timedOut: false },
+      { stdout: "authenticated", stderr: "", exitCode: 0, timedOut: false },
+      { stdout: "--permission-mode <mode>", stderr: "", exitCode: 0, timedOut: false },
+    ]));
+    await expect(provider.health()).resolves.toBe(true);
+  });
+  it("still passes --max-turns when help does not list it", async () => {
+    const runner = new FakeRunner([
+      { stdout: "--permission-mode <mode>", stderr: "", exitCode: 0, timedOut: false },
+      { stdout: JSON.stringify({ result: "compact finding" }), stderr: "", exitCode: 0, timedOut: false },
+    ]);
+    const result = await new ClaudeProvider(runner).run(request);
+    expect(result.success).toBe(true);
+    expect(runner.calls[1]?.args).toEqual(expect.arrayContaining(["--max-turns", "80", "--permission-mode", "plan"]));
   });
 
   it("refuses Claude execution when plan mode is unsupported", async () => {

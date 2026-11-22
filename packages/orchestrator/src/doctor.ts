@@ -1,5 +1,6 @@
 import type { ModelConfig } from "./config.js";
 import { antigravityCommandCandidates } from "./providers/antigravity.js";
+import { CLAUDE_REQUIRED_HELP_FLAGS } from "./providers/claude.js";
 import { openCodeCommandCandidates } from "./providers/opencode.js";
 import { codexCommandCandidates, missingHelpFlags } from "./providers/shared.js";
 import type { ProcessRunner } from "./types.js";
@@ -95,7 +96,7 @@ async function diagnoseClaude(runner: ProcessRunner, cwd: string): Promise<Check
     runner.run({ command: "claude", args: ["auth", "status"] }, { cwd, timeoutMs }),
     runner.run({ command: "claude", args: ["--help"] }, { cwd, timeoutMs }),
   ]);
-  const missingFlags = missingHelpFlags(help, ["--permission-mode", "--max-turns"]);
+  const missingFlags = missingHelpFlags(help, CLAUDE_REQUIRED_HELP_FLAGS);
   return { ...version, authenticated: auth.exitCode === 0, safe: help.exitCode === 0 && missingFlags.length === 0, ...(missingFlags.length ? { missingFlags } : {}) };
 }
 

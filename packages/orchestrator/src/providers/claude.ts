@@ -1,6 +1,11 @@
 import type { Command, ProcessRunner, Provider, ProviderCapabilities, WorkerRequest, WorkerResult } from "../types.js";
 import { commandAvailable, ensureReadOnly, helpCommand, missingHelpFlags, resultFromProcess } from "./shared.js";
 
+// Only the permission control is a safety requirement, so only it is gated on `--help`.
+// Recent Claude CLIs accept `--max-turns` without listing it there; a CLI that truly
+// lacks it rejects the run as an unknown option, which still fails closed.
+export const CLAUDE_REQUIRED_HELP_FLAGS = ["--permission-mode"];
+
 export function createClaudeCommand(request: WorkerRequest): Command {
   if (request.readOnly) ensureReadOnly(request);
   if (!request.readOnly && !request.writeBoundary) throw new Error("read-only safety: write-capable requests require an isolated write boundary");
@@ -40,7 +45,7 @@ export class ClaudeProvider implements Provider {
       this.runner.run({ command: "claude", args: ["auth", "status"] }, { cwd: process.cwd(), timeoutMs: 5_000 }),
       this.runner.run(helpCommand("claude"), { cwd: process.cwd(), timeoutMs: 5_000 }),
     ]);
-    return auth.exitCode === 0 && help.exitCode === 0 && missingHelpFlags(help, ["--permission-mode", "--max-turns"]).length === 0;
+    return auth.exitCode === 0 && help.exitCode === 0 && missingHelpFlags(help, CLAUDE_REQUIRED_HELP_FLAGS).length === 0;
   }
 
   capabilities(): ProviderCapabilities {
@@ -58,7 +63,10 @@ export class ClaudeProvider implements Provider {
   async run(request: WorkerRequest): Promise<WorkerResult> {
     if (request.readOnly) ensureReadOnly(request);
     const help = await this.runner.run(helpCommand("claude"), { cwd: request.cwd, timeoutMs: 5_000 });
-    if (help.exitCode !== 0 || missingHelpFlags(help, ["--permission-mode", "--max-turns"]).length > 0) {
+    if (help.exitCode !== 0) {
+      return unsupportedResult(request, "Claude CLI help could not be read; refusing to run without confirmed read-only enforcement or write isolation.");
+    }
+    if (missingHelpFlags(help, CLAUDE_REQUIRED_HELP_FLAGS).length > 0) {
       return unsupportedResult(request, `Claude CLI lacks --permission-mode ${request.readOnly ? "plan" : "acceptEdits"}; refusing to run without required read-only enforcement or write isolation.`);
     }
     const startedAt = Date.now();
