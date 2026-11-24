@@ -23,6 +23,8 @@ const DEFAULT_PROBE_LIMIT = 4;
 const MIN_ROLE_SAMPLES = 3;
 const PRIOR_WEIGHT = 5;
 const ROLLBACK_FAILURES = 3;
+/** A rolled-back model may be retried after this long, so a transient outage never blocks it for good. */
+const BLOCK_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
 const NEUTRAL_ROLE_SCORE = 5;
 
 export type ModelRefreshReport = {
@@ -73,7 +75,7 @@ export async function refreshModels(options: ModelRefreshOptions): Promise<Model
   };
 
   const evidence = await readEvidence(options.stateBase ?? resolve(tmpdir(), "dynamic-task-router"));
-  const layer: GeneratedLayer = { ...emptyGeneratedLayer(), refreshedAt: at, blocked: [...previous.blocked], probes: [...previous.probes] };
+  const layer: GeneratedLayer = { ...emptyGeneratedLayer(), refreshedAt: at, blocked: previous.blocked.filter((entry) => now.getTime() - Date.parse(entry.at) < BLOCK_EXPIRY_MS), probes: [...previous.probes] };
   const isBlocked = (provider: ProviderId, model: string): boolean => layer.blocked.some((entry) => entry.provider === provider && entry.model === model);
 
   // Roll back an earlier upgrade that has only failed since it was applied.

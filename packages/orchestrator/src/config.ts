@@ -362,13 +362,13 @@ export function userConfigPath(): string {
   return configured ? resolve(configured) : resolve(homedir(), ".config", "dynamic-task-router", "config.yaml");
 }
 
-export function mergeUserConfig(modelsText: string, userText: string): string {
+export function mergeUserConfig(modelsText: string, userText: string, options: { ignoreUnknownOverrides?: boolean } = {}): string {
   const base = expandModelsConfig(parse(modelsText));
   const overlay = userConfigSchema.parse(parse(userText));
   const models = base.models.map((model) => ({ ...model, roles: { ...model.roles }, efforts: [...model.efforts] }));
   for (const override of overlay.models.overrides) {
     const model = models.find((candidate) => candidate.id === override.id);
-    if (!model) throw new Error(`Personal configuration references unknown model '${override.id}'`);
+    if (!model) { if (options.ignoreUnknownOverrides) continue; throw new Error(`Personal configuration references unknown model '${override.id}'`); }
     if (override.enabled !== undefined) model.enabled = override.enabled;
     if (override.tier !== undefined) model.tier = override.tier;
     if (override.roles) model.roles = { ...model.roles, ...Object.fromEntries(Object.entries(override.roles).filter(([, value]) => value !== undefined)) as Partial<typeof model.roles> };
@@ -393,15 +393,16 @@ export function mergeGeneratedLayer(modelsText: string, layer: GeneratedLayer): 
   return JSON.stringify(modelsConfigSchema.parse({ version: 1, models: applyGeneratedLayer(base.models, layer) }));
 }
 
-export async function loadConfig(configDir = resolve(process.cwd(), "config"), personalConfig?: string, generatedLayer?: GeneratedLayer): Promise<RouterConfig> {
+/** `withoutGeneratedLayer` loads the base that `dtr update-models` rebuilds from; personal overrides of generated profiles are skipped there. */
+export async function loadConfig(configDir = resolve(process.cwd(), "config"), personalConfig?: string, generatedLayer?: GeneratedLayer | "withoutGeneratedLayer"): Promise<RouterConfig> {
   const [registryText, policyText, pipelinesText] = await Promise.all([
     readFile(resolve(configDir, "models.yaml"), "utf8"),
     readFile(resolve(configDir, "routing-policy.yaml"), "utf8"),
     readFile(resolve(configDir, "pipelines.yaml"), "utf8"),
   ]);
-  const modelsText = generatedLayer ? mergeGeneratedLayer(registryText, generatedLayer) : registryText;
+  const modelsText = generatedLayer && generatedLayer !== "withoutGeneratedLayer" ? mergeGeneratedLayer(registryText, generatedLayer) : registryText;
   const overlayText = personalConfig ? await readOptionalPersonalConfig(personalConfig) : undefined;
-  const config = parseConfig(overlayText ? mergeUserConfig(modelsText, overlayText) : modelsText, policyText, pipelinesText);
+  const config = parseConfig(overlayText ? mergeUserConfig(modelsText, overlayText, { ignoreUnknownOverrides: generatedLayer === "withoutGeneratedLayer" }) : modelsText, policyText, pipelinesText);
   if (overlayText) config.policy.preferences = userConfigSchema.parse(parse(overlayText)).routing.preferences;
   return config;
 }

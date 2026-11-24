@@ -71,11 +71,10 @@ export class DtrApplication {
 
   /** Rebuild the machine-maintained model layer: lineage upgrades, provisional additions, disabled stale models, and outcome grades. */
   async updateModels(options: { dryRun?: boolean } = {}): Promise<ModelRefreshReport & { path: string | null; written: boolean }> {
-    const previous = await this.generatedLayer().catch(() => undefined);
-    const report = await refreshModels({ config: await loadConfig(this.configDir, this.personalConfig ?? undefined), providers: this.providers, previous });
-    const written = Boolean(this.generatedConfig && !options.dryRun);
-    if (written) await writeGeneratedLayer(this.generatedConfig!, report.layer);
-    return { ...report, path: this.generatedConfig, written };
+    if (options.dryRun || !this.generatedConfig) return { ...(await this.buildModelLayer()), path: this.generatedConfig, written: false };
+    const report = await this.withUpdateLock(() => this.writeModelLayer());
+    if (!report) throw new Error("Another DTR model update is running; try again shortly.");
+    return { ...report, path: this.generatedConfig, written: true };
   }
 
   /** At most once a day and never concurrently with another DTR process; DTR_AUTO_UPDATE_MODELS=0 disables it. */
@@ -83,12 +82,28 @@ export class DtrApplication {
     if (!this.generatedConfig || process.env.DTR_AUTO_UPDATE_MODELS === "0") return undefined;
     const previous = await this.generatedLayer().catch(() => undefined);
     if (previous?.refreshedAt && Date.now() - Date.parse(previous.refreshedAt) < intervalMs) return undefined;
+    return this.withUpdateLock(() => this.writeModelLayer());
+  }
+
+  private async writeModelLayer(): Promise<ModelRefreshReport> {
+    const built = await this.buildModelLayer();
+    await writeGeneratedLayer(this.generatedConfig!, built.layer);
+    return built;
+  }
+
+  private async buildModelLayer(): Promise<ModelRefreshReport> {
+    const previous = await this.generatedLayer().catch(() => undefined);
+    return refreshModels({ config: await loadConfig(this.configDir, this.personalConfig ?? undefined, "withoutGeneratedLayer"), providers: this.providers, previous });
+  }
+
+  /** Runs `task` while holding the generated layer's lock; returns undefined when another process holds a fresh lock. */
+  private async withUpdateLock<T>(task: () => Promise<T>): Promise<T | undefined> {
     const lock = `${this.generatedConfig}.lock`;
     await mkdir(dirname(lock), { recursive: true, mode: 0o700 });
     try { await writeFile(lock, String(process.pid), { flag: "wx", mode: 0o600 }); } catch {
       try { if (Date.now() - (await stat(lock)).mtimeMs < 900_000) return undefined; await writeFile(lock, String(process.pid), { mode: 0o600 }); } catch { return undefined; }
     }
-    try { return await this.updateModels(); } finally { await unlink(lock).catch(() => undefined); }
+    try { return await task(); } finally { await unlink(lock).catch(() => undefined); }
   }
   profile(input: SelectionRequest): TaskProfile {
     return classifyTask(input.prompt, input.role, {

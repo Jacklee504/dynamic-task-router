@@ -79,6 +79,9 @@ export async function readGeneratedLayer(path: string): Promise<GeneratedLayer |
 
 export async function writeGeneratedLayer(path: string, layer: GeneratedLayer): Promise<void> {
   const validated = generatedLayerSchema.parse(layer);
+  // Never overwrite a file that is not already a generated layer, such as a misdirected DTR_GENERATED_CONFIG.
+  if (!path.endsWith(".json")) throw new Error(`Refusing to write the generated DTR model layer to '${path}': it must be a .json file.`);
+  await readGeneratedLayer(path).catch(() => { throw new Error(`Refusing to overwrite '${path}': it is not a generated DTR model layer.`); });
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   const temporary = `${path}.${process.pid}.tmp`;
   await writeFile(temporary, `${JSON.stringify(validated, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });

@@ -232,6 +232,15 @@ describe("refreshModels", () => {
     expect(report.changes).toEqual(expect.arrayContaining(["rolled back codex-sol: gpt-6.2-sol -> gpt-5.6-sol (3 failed runs)"]));
   });
 
+  it("lets a rolled-back model be retried after a week", async () => {
+    const previous: GeneratedLayer = { ...emptyGeneratedLayer(), blocked: [{ provider: "codex", model: "gpt-6.2-sol", reason: "3 consecutive failed runs after upgrade", at: "2026-11-01T00:00:00.000Z" }] };
+    const fresh = await refreshModels({ config, providers: fakeProviders(new Set(["gpt-6.2-sol"])), previous, stateBase: await temporaryDirectory(), now: new Date("2026-11-05T00:00:00.000Z"), fetcher: catalog({ "gpt-6.2-sol": {} }) });
+    expect(fresh.layer.upgrades).toEqual([]);
+    const expired = await refreshModels({ config, providers: fakeProviders(new Set(["gpt-6.2-sol"])), previous, stateBase: await temporaryDirectory(), now: new Date("2026-11-09T00:00:00.000Z"), fetcher: catalog({ "gpt-6.2-sol": {} }) });
+    expect(expired.layer.blocked).toEqual([]);
+    expect(expired.layer.upgrades).toEqual([expect.objectContaining({ id: "codex-sol", model: "gpt-6.2-sol", upgradedAt: "2026-11-09T00:00:00.000Z" })]);
+  });
+
   it("blends prior scores with outcomes and never grades below 1", () => {
     expect(gradeRole(7, [1, 1, 1, 1, 1])).toBe(9);
     expect(gradeRole(7, [0, 0, 0, 0, 0])).toBe(4);
@@ -256,5 +265,51 @@ describe("DtrApplication.updateModels", () => {
       expect((await app.config()).models.find((model) => model.id === "codex-sol")!.model).toBe("gpt-6.2-sol");
       expect(await app.autoUpdateModels()).toBeUndefined();
     } finally { globalThis.fetch = originalFetch; }
+  });
+
+  async function scaffold(personal?: string): Promise<{ directory: string; configDir: string; generated: string; personalPath: string }> {
+    const directory = await temporaryDirectory(); const configDir = join(directory, "config"); await mkdir(configDir);
+    await Promise.all([writeFile(join(configDir, "models.yaml"), models), writeFile(join(configDir, "routing-policy.yaml"), policy), writeFile(join(configDir, "pipelines.yaml"), pipelines)]);
+    const personalPath = join(directory, "config.yaml"); if (personal) await writeFile(personalPath, personal);
+    return { directory, configDir, generated: join(directory, "models.generated.json"), personalPath };
+  }
+  async function withCatalog<T>(fetcher: typeof fetch, task: () => Promise<T>): Promise<T> {
+    const originalFetch = globalThis.fetch; globalThis.fetch = fetcher;
+    try { return await task(); } finally { globalThis.fetch = originalFetch; }
+  }
+
+  it("keeps updating when personal settings override an automatically added model", async () => {
+    const { directory, configDir, generated, personalPath } = await scaffold("version: 1\nmodels:\n  overrides: [{ id: codex-gpt-astra, roles: { reviewer: 9 } }]\n");
+    const app = new DtrApplication(configDir, directory, fakeProviders(new Set(["gpt-6.2-astra"])), personalPath, generated);
+    await withCatalog(catalog({ "gpt-6.2-astra": { tool_call: true } }), async () => {
+      await app.updateModels();
+      expect((await app.config()).models.find((model) => model.id === "codex-gpt-astra")!.roles.reviewer).toBe(9);
+      await expect(app.updateModels()).resolves.toMatchObject({ written: true });
+    });
+  });
+
+  it("refuses a manual update while another process holds a fresh lock, and the daily update skips", async () => {
+    const { directory, configDir, generated, personalPath } = await scaffold();
+    await writeFile(`${generated}.lock`, "12345");
+    const app = new DtrApplication(configDir, directory, fakeProviders(new Set()), personalPath, generated);
+    await withCatalog(failingCatalog, async () => {
+      await expect(app.updateModels()).rejects.toThrow("Another DTR model update is running");
+      await expect(app.autoUpdateModels()).resolves.toBeUndefined();
+      await expect(app.updateModels({ dryRun: true })).resolves.toMatchObject({ written: false });
+    });
+    expect(await readFile(`${generated}.lock`, "utf8")).toBe("12345");
+  });
+
+  it("never overwrites a file that is not a generated layer", async () => {
+    const { directory, configDir, personalPath } = await scaffold("version: 1\n");
+    await withCatalog(failingCatalog, async () => {
+      const yaml = new DtrApplication(configDir, directory, fakeProviders(new Set()), personalPath, personalPath);
+      await expect(yaml.updateModels()).rejects.toThrow("must be a .json file");
+      expect(await readFile(personalPath, "utf8")).toBe("version: 1\n");
+      const other = join(directory, "settings.json"); await writeFile(other, "{\"theme\":\"dark\"}");
+      const json = new DtrApplication(configDir, directory, fakeProviders(new Set()), personalPath, other);
+      await expect(json.updateModels()).rejects.toThrow("is not a generated DTR model layer");
+      expect(await readFile(other, "utf8")).toBe("{\"theme\":\"dark\"}");
+    });
   });
 });
