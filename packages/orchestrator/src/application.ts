@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
-import { readdir } from "node:fs/promises";
-import { resolve } from "node:path";
+import { mkdir, readdir, stat, unlink, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import { loadConfig, userConfigPath, type ModelConfig, type RouterConfig } from "./config.js";
 import { NodeProcessRunner } from "./process.js";
 import { createProviders } from "./providers/index.js";
@@ -36,6 +36,8 @@ export type DtrEvent =
 import { readOpenRouterCatalog, refreshOpenRouterCatalog } from "./providers/openrouter.js";
 import { repositoryRootFromConfig } from "./config.js";
 import { discoverModels, type ModelDiscoveryReport } from "./model-discovery.js";
+import { generatedConfigPath, readGeneratedLayer, writeGeneratedLayer, type GeneratedLayer } from "./generated-config.js";
+import { refreshModels, type ModelRefreshReport } from "./model-refresh.js";
 
 export type SelectionRequest = {
   prompt: string;
@@ -58,13 +60,36 @@ export class DtrApplication {
   private readonly active = new Map<string, AbortController>();
   private readonly providers: Record<ProviderId, Provider>;
 
-  constructor(private readonly configDir: string, private readonly defaultCwd = process.cwd(), providers?: Record<ProviderId, Provider>, private readonly personalConfig: string | null = userConfigPath()) {
+  constructor(private readonly configDir: string, private readonly defaultCwd = process.cwd(), providers?: Record<ProviderId, Provider>, private readonly personalConfig: string | null = userConfigPath(), private readonly generatedConfig: string | null = personalConfig ? generatedConfigPath(personalConfig) : null) {
     this.providers = providers ?? createProviders(new NodeProcessRunner());
   }
 
   onEvent(listener: (event: DtrEvent) => void): () => void { this.events.on("event", listener); return () => this.events.off("event", listener); }
   private emit(event: DtrEvent): void { this.events.emit("event", event); }
-  async config(): Promise<RouterConfig> { return loadConfig(this.configDir, this.personalConfig ?? undefined); }
+  async config(): Promise<RouterConfig> { return loadConfig(this.configDir, this.personalConfig ?? undefined, await this.generatedLayer().catch(() => undefined)); }
+  private async generatedLayer(): Promise<GeneratedLayer | undefined> { return this.generatedConfig ? readGeneratedLayer(this.generatedConfig) : undefined; }
+
+  /** Rebuild the machine-maintained model layer: lineage upgrades, provisional additions, disabled stale models, and outcome grades. */
+  async updateModels(options: { dryRun?: boolean } = {}): Promise<ModelRefreshReport & { path: string | null; written: boolean }> {
+    const previous = await this.generatedLayer().catch(() => undefined);
+    const report = await refreshModels({ config: await loadConfig(this.configDir, this.personalConfig ?? undefined), providers: this.providers, previous });
+    const written = Boolean(this.generatedConfig && !options.dryRun);
+    if (written) await writeGeneratedLayer(this.generatedConfig!, report.layer);
+    return { ...report, path: this.generatedConfig, written };
+  }
+
+  /** At most once a day and never concurrently with another DTR process; DTR_AUTO_UPDATE_MODELS=0 disables it. */
+  async autoUpdateModels(intervalMs = 86_400_000): Promise<ModelRefreshReport | undefined> {
+    if (!this.generatedConfig || process.env.DTR_AUTO_UPDATE_MODELS === "0") return undefined;
+    const previous = await this.generatedLayer().catch(() => undefined);
+    if (previous?.refreshedAt && Date.now() - Date.parse(previous.refreshedAt) < intervalMs) return undefined;
+    const lock = `${this.generatedConfig}.lock`;
+    await mkdir(dirname(lock), { recursive: true, mode: 0o700 });
+    try { await writeFile(lock, String(process.pid), { flag: "wx", mode: 0o600 }); } catch {
+      try { if (Date.now() - (await stat(lock)).mtimeMs < 900_000) return undefined; await writeFile(lock, String(process.pid), { mode: 0o600 }); } catch { return undefined; }
+    }
+    try { return await this.updateModels(); } finally { await unlink(lock).catch(() => undefined); }
+  }
   profile(input: SelectionRequest): TaskProfile {
     return classifyTask(input.prompt, input.role, {
       ...(input.profile ?? {}),
@@ -152,7 +177,7 @@ export class DtrApplication {
     const { prompt, files, stateRoot, config, profile, record, controller } = prepared;
     const lifecycle: WorkerLifecycle = {
         onRouteSelected: (selected) => {
-          record.stages[0]!.model = selected.modelId;
+          Object.assign(record.stages[0]!, { model: selected.modelId, role: profile.role, provider: selected.provider, providerModel: selected.model });
           this.emit({ type: "route-selected", runId: record.id, model: selected.modelId, provider: selected.provider, effort: selected.effort, timestamp: now() });
           input.lifecycle?.onRouteSelected?.(selected);
         },

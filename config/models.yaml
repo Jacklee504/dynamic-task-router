@@ -122,6 +122,7 @@ models:
     provider: codex
     family: openai
     model: gpt-5.6-luna
+    lineage: "gpt-{version}-luna"
     tier: fast
     enabled: true
     local: false
@@ -137,6 +138,7 @@ models:
     provider: codex
     family: openai
     model: gpt-5.6-terra
+    lineage: "gpt-{version}-terra"
     tier: deep
     enabled: true
     local: false
@@ -152,6 +154,7 @@ models:
     provider: codex
     family: openai
     model: gpt-5.6-sol
+    lineage: "gpt-{version}-sol"
     tier: critical
     enabled: true
     local: false
@@ -226,6 +229,7 @@ models:
   - id: antigravity-gemini-flash-low
     profile: antigravity-gemini-flash
     model: gemini-3.8-flash-low
+    lineage: "gemini-{version}-flash-low"
     tier: fast
     roles: { architect: 4, implementer: 5, debugger: 5, reviewer: 6, researcher: 7, test: 5, log-analysis: 6 }
     efforts: [low, medium, high]
@@ -234,6 +238,7 @@ models:
   - id: antigravity-gemini-flash-medium
     profile: antigravity-gemini-flash
     model: gemini-3.8-flash-medium
+    lineage: "gemini-{version}-flash-medium"
     tier: standard
     roles: { architect: 6, implementer: 7, debugger: 7, reviewer: 7, researcher: 8, test: 7, log-analysis: 7 }
     efforts: [low, medium, high]
@@ -242,6 +247,7 @@ models:
   - id: antigravity-gemini-flash-high
     profile: antigravity-gemini-flash
     model: gemini-3.8-flash-high
+    lineage: "gemini-{version}-flash-high"
     tier: deep
     roles: { architect: 8, implementer: 8, debugger: 8, reviewer: 8, researcher: 8, test: 8, log-analysis: 8 }
     efforts: [medium, high]

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { main } from "../src/cli.js";
+import { commandSpecs, knownFlagsFor } from "../src/cli-help.js";
 
 let out = "";
 let err = "";
@@ -87,6 +88,16 @@ describe("cli discoverability", () => {
   it("accepts the documented global flags on a command", async () => {
     expect(await main(["config", "--config-dir", "."])).toBe(0);
     expect(out).toContain("baseConfigDir");
+  });
+  it("accepts --prompt on dtr run, which the command requires", async () => {
+    await main(["run", "--allow-raw-prompt", "--provider", "codex", "--model", "codex-terra", "--role", "reviewer", "--prompt", "Review", "--config-dir", "definitely-not-a-real-dir"]);
+    expect(err).not.toContain("Unknown option");
+  });
+  it("accepts every flag that a command's usage line documents", () => {
+    for (const [command, spec] of Object.entries(commandSpecs)) {
+      const known = knownFlagsFor(command);
+      for (const [, flag] of spec.usage.matchAll(/--([a-z][a-z-]*)/g)) expect(known.has(flag!), `dtr ${command} --${flag}`).toBe(true);
+    }
   });
   it("names the missing option when a required flag is absent", async () => {
     expect(await main(["status"])).toBe(1);

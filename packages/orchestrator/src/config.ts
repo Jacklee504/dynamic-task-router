@@ -5,6 +5,7 @@ import { dirname, resolve } from "node:path";
 import { parse } from "yaml";
 import { z } from "zod";
 
+import { applyGeneratedLayer, type GeneratedLayer } from "./generated-config.js";
 import type { Effort, ProviderId, WorkerRole } from "./types.js";
 
 const providerSchema = z.enum(["claude", "codex", "ollama", "openrouter", "featherless", "antigravity", "opencode"]);
@@ -20,6 +21,8 @@ const roleSchema = z.enum([
   "log-analysis",
 ]);
 
+const lineageSchema = z.string().min(1).refine((value) => value.split("{version}").length === 2, "lineage must contain {version} exactly once");
+
 const partialRolesSchema = z.object({
   architect: z.number().int().min(0).max(10).optional(),
   implementer: z.number().int().min(0).max(10).optional(),
@@ -34,6 +37,8 @@ export const modelProfileSchema = z.object({
   provider: providerSchema.optional(),
   family: z.string().min(1).optional(),
   model: z.string().min(1).optional(),
+  lineage: lineageSchema.optional(),
+  provisional: z.boolean().optional(),
   tier: modelTierSchema.optional(),
   enabled: z.boolean().optional(),
   local: z.boolean().optional(),
@@ -64,6 +69,8 @@ const rawModelEntrySchema = z.object({
   provider: providerSchema.optional(),
   family: z.string().min(1).optional(),
   model: z.string().min(1).optional(),
+  lineage: lineageSchema.optional(),
+  provisional: z.boolean().optional(),
   tier: modelTierSchema.optional(),
   enabled: z.boolean().optional(),
   local: z.boolean().optional(),
@@ -99,6 +106,8 @@ export const modelSchema = z.object({
   provider: providerSchema,
   family: z.string().min(1),
   model: z.string().min(1),
+  lineage: lineageSchema.optional(),
+  provisional: z.boolean().optional(),
   tier: modelTierSchema.default("standard"),
   enabled: z.boolean().default(true),
   local: z.boolean().default(false),
@@ -274,6 +283,10 @@ export type ModelConfig = {
   provider: ProviderId;
   family: string;
   model: string;
+  /** `prefix{version}suffix`: newer confirmed versions replace `model` automatically. */
+  lineage?: string;
+  /** Added automatically and not yet graded from reviewed outcomes. */
+  provisional?: boolean;
   tier: z.infer<typeof modelTierSchema>;
   enabled: boolean;
   local: boolean;
@@ -314,6 +327,8 @@ export function parseConfig(modelsText: string, policyText: string, pipelinesTex
       provider: model.provider,
       family: model.family,
       model: model.model,
+      ...(model.lineage ? { lineage: model.lineage } : {}),
+      ...(model.provisional ? { provisional: true } : {}),
       tier: model.tier,
       enabled: model.enabled,
       local: model.local,
@@ -361,18 +376,30 @@ export function mergeUserConfig(modelsText: string, userText: string): string {
     if (override.default_effort !== undefined) model.default_effort = override.default_effort;
   }
   for (const addition of overlay.models.additions) {
+    // A reviewed personal addition supersedes an automatically added provisional profile.
+    for (let index = models.length - 1; index >= 0; index--) {
+      const model = models[index]!;
+      if (model.provisional && (model.id === addition.id || (model.provider === addition.provider && model.model === addition.model))) models.splice(index, 1);
+    }
     if (models.some((model) => model.id === addition.id)) throw new Error(`Personal configuration duplicates model id '${addition.id}'`);
     models.push(addition);
   }
   return JSON.stringify(modelsConfigSchema.parse({ version: 1, models }));
 }
 
-export async function loadConfig(configDir = resolve(process.cwd(), "config"), personalConfig?: string): Promise<RouterConfig> {
-  const [modelsText, policyText, pipelinesText] = await Promise.all([
+/** Apply the machine-maintained layer beneath personal settings. */
+export function mergeGeneratedLayer(modelsText: string, layer: GeneratedLayer): string {
+  const base = expandModelsConfig(parse(modelsText));
+  return JSON.stringify(modelsConfigSchema.parse({ version: 1, models: applyGeneratedLayer(base.models, layer) }));
+}
+
+export async function loadConfig(configDir = resolve(process.cwd(), "config"), personalConfig?: string, generatedLayer?: GeneratedLayer): Promise<RouterConfig> {
+  const [registryText, policyText, pipelinesText] = await Promise.all([
     readFile(resolve(configDir, "models.yaml"), "utf8"),
     readFile(resolve(configDir, "routing-policy.yaml"), "utf8"),
     readFile(resolve(configDir, "pipelines.yaml"), "utf8"),
   ]);
+  const modelsText = generatedLayer ? mergeGeneratedLayer(registryText, generatedLayer) : registryText;
   const overlayText = personalConfig ? await readOptionalPersonalConfig(personalConfig) : undefined;
   const config = parseConfig(overlayText ? mergeUserConfig(modelsText, overlayText) : modelsText, policyText, pipelinesText);
   if (overlayText) config.policy.preferences = userConfigSchema.parse(parse(overlayText)).routing.preferences;

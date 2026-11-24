@@ -101,6 +101,7 @@ function gateReasons(
   if (options.circuitOpenProviders?.has(model.provider)) reasons.push("provider circuit breaker is temporarily open");
   if (availability[model.id] === false) reasons.push("provider unavailable");
   if (excludedFamilies.has(model.family)) reasons.push(`family '${model.family}' already selected`);
+  if (model.provisional && options.modelId !== model.id && (task.risk !== "low" || task.complexity === "difficult" || task.complexity === "extreme")) reasons.push("provisional model is limited to low-risk tasks until graded");
   if (task.requireLocal && !model.local) reasons.push("local-only task");
   if (task.privacySensitive && !model.local) reasons.push("privacy-sensitive task requires local model");
   if (task.allowRemote === false && !model.local) reasons.push("remote models are disallowed");

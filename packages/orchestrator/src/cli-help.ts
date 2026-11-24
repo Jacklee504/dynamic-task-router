@@ -82,6 +82,12 @@ export const commandSpecs: Record<string, CommandSpec> = {
     usage: "dtr discover-models [--refresh] [--cwd <path>]",
     flags: [{ name: "refresh", description: "Refresh cached catalogue metadata" }, ...globalFlags],
   },
+  "update-models": {
+    summary: "Upgrade model lineages, add new models provisionally, and grade models from reviewed outcomes.",
+    usage: "dtr update-models [--dry-run]",
+    flags: [{ name: "dry-run", description: "Report the changes without writing the generated model layer" }, ...globalFlags],
+    examples: ["dtr update-models --dry-run", "dtr update-models"],
+  },
   "opencode-models": {
     summary: "List OpenCode's configured catalogue identifiers.",
     usage: "dtr opencode-models [--cwd <path>]",
@@ -94,6 +100,7 @@ export const commandSpecs: Record<string, CommandSpec> = {
       { name: "allow-raw-prompt", description: "Required expert override for the raw-prompt path" },
       { name: "provider", value: "<provider>", description: "Provider that owns the model" },
       { name: "model", value: "<id>", description: "Configured model id or model name" },
+      { name: "prompt", value: "<text>", description: "Raw task prompt sent to the model" },
       { name: "include-files", value: "<paths>", description: "Relative paths to inline as bounded excerpts" },
       ...profileFlags,
       roleFlag,

@@ -62,6 +62,7 @@ export async function main(argv: string[]): Promise<number> {
       return await (subcommand === "refresh" || flags.refresh ? refreshModels(app) : reportModels(app, flags));
     }
     if (command === "discover-models") return await discoverModels(app, flags);
+    if (command === "update-models") { console.log(JSON.stringify(await app.updateModels({ dryRun: boolFlag(flags, "dry-run") }), null, 2)); return 0; }
     if (command === "opencode-models") return await reportOpenCodeModels(app["providers"], cwdFrom(flags));
     if (command === "run") return await runExplicit(configDir, flags, app);
     if (command === "select") return await selectOnly(app, flags);

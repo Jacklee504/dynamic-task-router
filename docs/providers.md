@@ -127,8 +127,39 @@ configured models missing from a successfully read CLI catalogue, and duplicate
 profiles for the same provider/model. An unavailable CLI does not mark its
 configured models missing. `profileSuggestions` contains disabled, incomplete
 starters for newly visible CLI models; fill in every `reviewRequired` field
-before adding one to configuration. Missing or duplicate entries are review
-signals, not automatic reasons to disable a model.
+before adding one to configuration. In discovery output, missing or duplicate
+entries are review signals only; `dtr update-models` acts on missing ones.
+
+`dtr update-models` (MCP: `dtr_update_models`) keeps the registry current
+without editing `config/models.yaml` or your personal configuration. It writes
+a machine-maintained layer to `models.generated.json` next to the personal
+configuration (override with `DTR_GENERATED_CONFIG`). The layer sits between
+the checked-in registry and personal settings, so personal overrides always
+win. The DTR MCP server runs the update in the background at most once a day;
+set `DTR_AUTO_UPDATE_MODELS=0` to turn that off, and use `--dry-run` to see
+what would change.
+
+- **Lineage upgrades.** A profile with `lineage: "gpt-{version}-sol"` moves to
+  the newest version in that line that the account can use, keeping its role
+  scores, effort range, and privacy settings, and taking context and cost from
+  the catalogue. Codex and Claude models are confirmed with a tiny read-only
+  probe through the normal provider safety checks (at most four per run;
+  failures are retried after a week). Antigravity and OpenCode models are
+  confirmed by their own CLI catalogues.
+- **Provisional additions.** A new Codex, Claude, or Antigravity model line
+  is added with neutral role scores, `write_safe: false`, and
+  `provisional: true`. Provisional models are only routed for low-risk,
+  non-difficult tasks unless selected explicitly. Private code is allowed only
+  when every existing profile for that provider already allows it. OpenCode
+  exposes hundreds of models, so it only receives lineage upgrades.
+- **Stale models.** A profile whose model an account-aware CLI no longer lists
+  is disabled until it reappears.
+- **Grades.** Reviewed outcomes recorded with `dtr_outcome` on single routes
+  adjust each role score for the exact model that ran: the profile's prior
+  is blended with the outcomes once a role has three of them. A provisional
+  model stops being provisional after ten graded outcomes.
+- **Rollback.** An upgrade whose runs have failed three times with no success
+  is rolled back and that model is blocked.
 
 `dtr opencode-models` reports catalog identifiers in the exact
 `provider/model` form that OpenCode accepts. Discovery alone cannot determine

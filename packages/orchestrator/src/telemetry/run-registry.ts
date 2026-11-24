@@ -1,13 +1,17 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
-import type { RunState } from "../types.js";
+import type { ProviderId, RunState, WorkerRole } from "../types.js";
 import type { WriteMode } from "../worktrees/types.js";
 
 export interface RunStageRecord {
   id: string;
   state: RunState;
   model?: string;
+  /** The routed role and provider model, kept so reviewed outcomes can grade the model that ran. */
+  role?: WorkerRole;
+  provider?: ProviderId;
+  providerModel?: string;
   error?: string;
   writeMode?: WriteMode;
   branch?: string;

@@ -86,6 +86,9 @@ export function createMcpServer(): McpServer {
   server.registerTool("dtr_models", { description: "List configured model routing metadata without credentials.", inputSchema: {} }, async () => {
     try { return text(await appFor(cwd(undefined)).listModels()); } catch (reason) { return error(reason); }
   });
+  server.registerTool("dtr_update_models", { description: "Rebuild DTR's generated model layer: upgrade configured model lineages to the newest version the account can use, add new model lines as provisional profiles, disable models a CLI no longer offers, and grade models from recorded outcomes. Probes use a tiny read-only request. Never edits the checked-in registry or personal settings.", inputSchema: { dryRun: z.boolean().optional() } }, async (input) => {
+    try { return text(await appFor(process.cwd()).updateModels({ dryRun: input.dryRun ?? false })); } catch (reason) { return error(reason); }
+  });
   server.registerTool("dtr_discover_models", { description: "Discover account-visible OpenCode and Antigravity models plus public models.dev candidates. refresh updates OpenCode's model cache and public metadata. Never edits routing configuration or invokes a model.", inputSchema: { cwd: z.string().min(1).max(2048).optional(), refresh: z.boolean().optional() } }, async (input) => {
     try { return text(await appFor(cwd(input.cwd)).discoverModels({ refresh: input.refresh ?? false })); } catch (reason) { return error(reason); }
   });
@@ -137,6 +140,10 @@ export function createMcpServer(): McpServer {
   return server;
 }
 
-export async function main(): Promise<void> { await createMcpServer().connect(new StdioServerTransport()); }
+export async function main(): Promise<void> {
+  await createMcpServer().connect(new StdioServerTransport());
+  // Daily background refresh of the generated model layer; failures never affect the server.
+  void new DtrApplication(configDir).autoUpdateModels().catch((reason) => { console.error(`dtr: automatic model update failed: ${reason instanceof Error ? reason.message : String(reason)}`); });
+}
 function isMainModule(): boolean { try { return Boolean(process.argv[1]) && import.meta.url === pathToFileURL(realpathSync(process.argv[1]!)).href; } catch { return false; } }
 if (isMainModule()) main().catch((reason) => { console.error(reason); process.exitCode = 1; });

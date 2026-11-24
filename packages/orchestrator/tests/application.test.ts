@@ -103,6 +103,13 @@ describe("application observability", () => {
     await expect(app.getRun(run.runId.slice(0, 8))).resolves.toMatchObject({ id: run.runId });
     await expect(app.getRun("00000000-0000")).resolves.toBeNull();
   });
+  it("records the routed role and provider model so reviewed outcomes can grade the model that ran", async () => {
+    const { configDir, cwd } = await scaffold();
+    const app = new DtrApplication(configDir, cwd, fakeProviders(), null);
+    const run = await app.run({ prompt: "Review one", role: "reviewer", cwd });
+    const record = await app.getRun(run.runId);
+    expect(record?.stages[0]).toMatchObject({ model: run.routing.selectedModel, role: "reviewer", provider: run.result.provider, providerModel: run.result.model });
+  });
   it("continues a DTR conversation with only the prior short handoff and inherited files", async () => {
     const { configDir, cwd } = await scaffold();
     await writeFile(join(cwd, "parser.ts"), "export const parse = () => 1;\n");

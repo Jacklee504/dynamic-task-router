@@ -11,7 +11,7 @@ npm run dtr:mcp
 ```
 
 The server exposes only typed router tools: `dtr_health`, `dtr_models`,
-`dtr_discover_models`, `dtr_start`, `dtr_doctor`, `dtr_usage`, `dtr_select`, `dtr_prepare`,
+`dtr_discover_models`, `dtr_update_models`, `dtr_start`, `dtr_doctor`, `dtr_usage`, `dtr_select`, `dtr_prepare`,
 `dtr_run`, `dtr_dispatch`, `dtr_fanout`, `dtr_pipeline`, `dtr_status`,
 `dtr_runs`, `dtr_abort`, and `dtr_outcome`. There is no shell passthrough, executable
 override, environment-variable tool, or raw provider command.

@@ -1,4 +1,5 @@
 import type { ModelConfig, RouterConfig } from "./config.js";
+import { compareVersions } from "./generated-config.js";
 import { AntigravityProvider } from "./providers/antigravity.js";
 import { OpenCodeProvider } from "./providers/opencode.js";
 import type { Provider, ProviderId } from "./types.js";
@@ -28,7 +29,7 @@ export type DiscoveredModel = {
   source: "runtime" | "catalog";
   coverage: "configured" | "covered-by-alias" | "unprofiled";
   profiles: string[];
-  metadata?: { name?: string; contextTokens?: number; reasoning?: boolean; tools?: boolean };
+  metadata?: { name?: string; contextTokens?: number; reasoning?: boolean; tools?: boolean; inputPerMillion?: number; outputPerMillion?: number };
 };
 
 export type ModelDiscoveryReport = {
@@ -152,18 +153,31 @@ function profileSuggestions(configured: ModelConfig[], candidates: DiscoveredMod
 }
 
 async function discoverCatalog(configured: ModelConfig[], fetcher: typeof fetch): Promise<{ source: DiscoverySource; candidates: DiscoveredModel[] }> {
+  const fetched = await fetchModelsDevCatalog(fetcher);
+  if (!fetched.entries) return { source: fetched.source, candidates: [] };
+  const candidates = actionableCatalogCandidates(configured, fetched.entries);
+  return { source: { ...fetched.source, models: candidates.length }, candidates };
+}
+
+export type CatalogEntry = ReturnType<typeof parseModelsDevCatalog>[number];
+
+export async function fetchModelsDevCatalog(fetcher: typeof fetch): Promise<{ source: DiscoverySource; entries?: CatalogEntry[] }> {
   try {
     const response = await fetcher(MODELS_DEV_URL, { signal: AbortSignal.timeout(10_000) });
-    if (!response.ok) return { source: { id: "models.dev", status: "failed", detail: `catalog returned ${response.status}` }, candidates: [] };
-    const payload = await response.json() as unknown;
-    const candidates = parseModelsDevCatalog(payload)
-      .map((item) => ({ ...discovered(configured, item.provider, item.model, "catalog"), ...(item.metadata ? { metadata: item.metadata } : {}) }))
-      .filter((item) => item.coverage === "unprofiled" && isActionableCatalogCandidate(configured, item))
-      .sort(compareDiscovered);
-    return { source: { id: "models.dev", status: "refreshed", models: candidates.length }, candidates };
+    if (!response.ok) return { source: { id: "models.dev", status: "failed", detail: `catalog returned ${response.status}` } };
+    const entries = parseModelsDevCatalog(await response.json() as unknown);
+    return { source: { id: "models.dev", status: "refreshed", models: entries.length }, entries };
   } catch {
-    return { source: { id: "models.dev", status: "failed", detail: "catalog could not be refreshed" }, candidates: [] };
+    return { source: { id: "models.dev", status: "failed", detail: "catalog could not be refreshed" } };
   }
+}
+
+/** Unprofiled public catalogue entries newer than the configured registry. */
+export function actionableCatalogCandidates(configured: ModelConfig[], entries: CatalogEntry[]): DiscoveredModel[] {
+  return entries
+    .map((item) => ({ ...discovered(configured, item.provider, item.model, "catalog"), ...(item.metadata ? { metadata: item.metadata } : {}) }))
+    .filter((item) => item.coverage === "unprofiled" && isActionableCatalogCandidate(configured, item))
+    .sort(compareDiscovered);
 }
 
 /** Parse the public models.dev provider map without trusting a particular catalog version. */
@@ -188,10 +202,12 @@ export function parseModelsDevCatalog(payload: unknown): Array<{ provider: Provi
       const contextTokens = number(limit?.context);
       const reasoning = boolean(model?.reasoning);
       const tools = boolean(model?.tool_call);
+      const cost = record(model?.cost);
+      const inputPerMillion = number(cost?.input); const outputPerMillion = number(cost?.output);
       entries.push({
         provider,
         model: normalized,
-        metadata: compactMetadata({ ...(name !== undefined ? { name } : {}), ...(contextTokens !== undefined ? { contextTokens } : {}), ...(reasoning !== undefined ? { reasoning } : {}), ...(tools !== undefined ? { tools } : {}) }),
+        metadata: compactMetadata({ ...(name !== undefined ? { name } : {}), ...(contextTokens !== undefined ? { contextTokens } : {}), ...(reasoning !== undefined ? { reasoning } : {}), ...(tools !== undefined ? { tools } : {}), ...(inputPerMillion !== undefined && outputPerMillion !== undefined ? { inputPerMillion, outputPerMillion } : {}) }),
       });
     }
   }
@@ -210,15 +226,16 @@ function discovered(configured: ModelConfig[], provider: ProviderId, model: stri
 function isActionableCatalogCandidate(configured: ModelConfig[], candidate: DiscoveredModel): boolean {
   if (candidate.provider === "claude") return true;
   if (candidate.provider !== "codex") return false;
-  const candidateGeneration = gptGeneration(candidate.model);
-  if (candidateGeneration === undefined) return false;
-  const configuredGeneration = Math.max(...configured.filter((model) => model.provider === "codex").map((model) => gptGeneration(model.model) ?? 0), 0);
-  return candidateGeneration > configuredGeneration;
+  const candidateVersion = gptVersion(candidate.model);
+  if (candidateVersion === undefined) return false;
+  const configuredVersions = configured.filter((model) => model.provider === "codex").map((model) => gptVersion(model.model) ?? [0]);
+  const newest = configuredVersions.reduce((best, version) => compareVersions(version, best) > 0 ? version : best, [0]);
+  return compareVersions(candidateVersion, newest) > 0;
 }
 
-function gptGeneration(model: string): number | undefined {
-  const match = model.match(/^gpt-(\d+)/);
-  return match ? Number.parseInt(match[1]!, 10) : undefined;
+function gptVersion(model: string): number[] | undefined {
+  const match = model.match(/^gpt-(\d+(?:\.\d+)*)/);
+  return match ? match[1]!.split(".").map(Number) : undefined;
 }
 
 function compactMetadata(value: NonNullable<DiscoveredModel["metadata"]>): DiscoveredModel["metadata"] | undefined {
